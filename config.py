@@ -25,7 +25,7 @@ def load_config(path, role, *, check_only=False):
         raise ValueError("Configuration exceeds 16 KiB")
     config = strict_json(path.read_text(encoding="utf-8"))
     role_key = f"{role.upper()}_API_KEY"
-    required = {"LEDGER_BASE_URL", role_key, "OPENAI_API_KEY", "OPENAI_MODEL"}
+    required = {"LEDGER_BASE_URL", role_key, "DEEPSEEK_API_KEY", "DEEPSEEK_MODEL"}
     if not isinstance(config, dict) or set(config) - required - {"STATE_DIR"}:
         raise ValueError("Configuration contains unknown names or another role's key")
     if not required <= config.keys() or any(
@@ -35,7 +35,7 @@ def load_config(path, role, *, check_only=False):
     config = {k: v.strip() for k, v in config.items()}
     if config["LEDGER_BASE_URL"].rstrip("/") != "https://ledger.chanyeun.com/api/v1":
         raise ValueError("Use the canonical Ledger HTTPS API base URL")
-    needed = [role_key] if check_only else [role_key, "OPENAI_API_KEY", "OPENAI_MODEL"]
+    needed = [role_key] if check_only else [role_key, "DEEPSEEK_API_KEY", "DEEPSEEK_MODEL"]
     if any(config[k].startswith("PASTE_") for k in needed):
         raise ValueError("Replace placeholders in your private configuration")
     config["STATE_DIR"] = str((path.parent / config.get("STATE_DIR", ".state")).resolve())

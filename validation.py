@@ -2,6 +2,11 @@
 
 from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_FLOOR, localcontext
 
+
+class ValidationError(ValueError):
+    """A locally authored validation explanation safe to show without raw input."""
+
+
 SYMBOLS = {"BTC", "ETH", "DOGE", "XMR", "XRP", "SOL"}
 CENT = Decimal("0.01")
 UNIT = Decimal("1e-10")
@@ -13,36 +18,36 @@ INJECTION_PHRASES = (
 
 def number(value, *, model=False):
     if isinstance(value, bool) or not isinstance(value, (int, float, Decimal, str)):
-        raise ValueError("Expected a finite number")
+        raise ValidationError("Expected a finite number")
     if model and isinstance(value, str):
-        raise ValueError("Model numbers must be JSON numbers")
+        raise ValidationError("Model numbers must be JSON numbers")
     try:
         result = Decimal(str(value))
     except InvalidOperation:
-        raise ValueError("Expected a finite number") from None
+        raise ValidationError("Expected a finite number") from None
     if not result.is_finite() or result.adjusted() > 27:
-        raise ValueError("Number is non-finite or too large")
+        raise ValidationError("Number is non-finite or too large")
     return result
 
 
 def quantity(value, *, model=False):
     result = number(value, model=model)
     if result <= 0 or result >= Decimal("1e18") or result.as_tuple().exponent < -10:
-        raise ValueError("Quantity must be positive, with at most 18 integer and 10 decimal digits")
+        raise ValidationError("Quantity must be positive, with at most 18 integer and 10 decimal digits")
     return result
 
 
 def positive_int(value):
     if type(value) is not int or value <= 0:
-        raise ValueError("Expected a positive integer")
+        raise ValidationError("Expected a positive integer")
     return value
 
 
 def text(value, limit):
     if not isinstance(value, str) or not value.strip() or "\x00" in value:
-        raise ValueError("Expected meaningful text without NUL")
+        raise ValidationError("Expected meaningful text without NUL")
     if len(value.encode("utf-8")) > limit:
-        raise ValueError("Text exceeds byte limit")
+        raise ValidationError("Text exceeds byte limit")
     return value.strip()
 
 
@@ -50,7 +55,7 @@ def names(value):
     if isinstance(value, str):
         value = value.split(",") if value.strip() else []
     if not isinstance(value, list) or any(not isinstance(v, str) for v in value):
-        raise ValueError("Expected a list of names")
+        raise ValidationError("Expected a list of names")
     return [v.strip().upper() for v in value if v.strip()]
 
 
@@ -76,39 +81,39 @@ def bounded_quantity(budget, price):
 
 def validate_theory(theory):
     if not isinstance(theory, dict) or theory.get("status") != "SUBMITTED":
-        raise ValueError("A submitted theory is required")
+        raise ValidationError("A submitted theory is required")
     for key in ("id", "version", "lookback_minutes"):
         positive_int(theory.get(key))
     if theory["lookback_minutes"] > 1440:
-        raise ValueError("Lookback exceeds 1440 minutes")
+        raise ValidationError("Lookback exceeds 1440 minutes")
     text(theory.get("title"), 120)
     for key in ("hypothesis", "entry_rule", "exit_rule", "risk_rule"):
         text(theory.get(key), 4000)
     selected = theory.get("selected_symbols")
     if (not isinstance(selected, list) or not 1 <= len(selected) <= 6
             or any(s not in SYMBOLS for s in selected) or len(set(selected)) != len(selected)):
-        raise ValueError("Invalid theory currency selection")
+        raise ValidationError("Invalid theory currency selection")
     if theory.get("strategy") not in {"momentum", "mean_reversion", "custom"}:
-        raise ValueError("Unrecognised strategy")
+        raise ValidationError("Unrecognised strategy")
     for key, low, high in (
         ("threshold_pct", "0.01", "50"), ("position_fraction", "0.001", "1"),
         ("stop_loss_pct", "0.01", "100"), ("take_profit_pct", "0.01", "100"),
     ):
         value = number(theory.get(key))
         if not Decimal(low) <= value <= Decimal(high) or value.as_tuple().exponent < -4:
-            raise ValueError("Invalid theory setting")
+            raise ValidationError("Invalid theory setting")
     return theory
 
 
 def validate_policy(policy):
     if not isinstance(policy, dict):
-        raise ValueError("Missing policy")
+        raise ValidationError("Missing policy")
     for key in ("max_transaction_amount", "escalation_threshold"):
         if number(policy.get(key)) <= 0:
-            raise ValueError("Invalid policy amount")
+            raise ValidationError("Invalid policy amount")
     for key in ("max_trades_per_hour", "max_trades_per_day", "trades_last_hour", "trades_last_day"):
         if type(policy.get(key)) is not int or policy[key] < 0:
-            raise ValueError("Invalid policy quota or count")
+            raise ValidationError("Invalid policy quota or count")
     for key in ("allowed_symbols", "restricted_actions"):
         names(policy.get(key))
     return policy
@@ -117,13 +122,13 @@ def validate_policy(policy):
 def holding(portfolio, symbol):
     cash = number(portfolio["cash_balance"])
     if cash < 0 or not isinstance(portfolio["holdings"], list):
-        raise ValueError("Invalid portfolio")
+        raise ValidationError("Invalid portfolio")
     found = [h for h in portfolio["holdings"] if h["symbol"] == symbol]
     if len(found) > 1:
-        raise ValueError("Duplicate portfolio position")
+        raise ValidationError("Duplicate portfolio position")
     item = found[0] if found else {"symbol": symbol, "quantity": 0, "avg_cost": 0}
     if number(item["quantity"]) < 0 or number(item["avg_cost"]) < 0:
-        raise ValueError("Invalid holding")
+        raise ValidationError("Invalid holding")
     return item
 
 
@@ -134,7 +139,7 @@ def hard_rules(order, policy, portfolio, price):
     q = quantity(order["quantity"])
     price = number(price)
     if price <= 0:
-        raise ValueError("Invalid quote")
+        raise ValidationError("Invalid quote")
     blocked, review = [], []
     if action not in {"BUY", "SELL"} or action in names(policy["restricted_actions"]):
         blocked.append("restricted_action")
@@ -165,54 +170,54 @@ def hard_rules(order, policy, portfolio, price):
 
 def validate_trader(answer, theory, policy, portfolio, signals, *, model_output=True):
     if not isinstance(answer, dict) or set(answer) != {"symbol", "action", "quantity", "reasoning"}:
-        raise ValueError("Trader output has incorrect fields")
+        raise ValidationError("Trader output has incorrect fields")
     text(answer["reasoning"], 16000)
     if not isinstance(answer["symbol"], str):
-        raise ValueError("Symbol must be text")
+        raise ValidationError("Symbol must be text")
     action = answer["action"]
     if action == "HOLD":
         if number(answer["quantity"], model=model_output) != 0:
-            raise ValueError("HOLD quantity must be zero")
+            raise ValidationError("HOLD quantity must be zero")
         return answer
     if action not in {"BUY", "SELL"}:
-        raise ValueError("Invalid trading action")
+        raise ValidationError("Invalid trading action")
     q = quantity(answer["quantity"], model=model_output)
     symbol = answer["symbol"]
     if symbol not in theory["selected_symbols"] or symbol not in signals:
-        raise ValueError("Currency is outside validated theory evidence")
+        raise ValidationError("Currency is outside validated theory evidence")
     signal = signals[symbol]
     if signal["expected_action"] != action:
-        raise ValueError("Model decision does not follow the submitted theory")
+        raise ValidationError("Model decision does not follow the submitted theory")
     blocked, _ = hard_rules(answer, policy, portfolio, signal["price"])
     if blocked:
-        raise ValueError("Order failed hard rules: " + ", ".join(blocked))
+        raise ValidationError("Order failed hard rules: " + ", ".join(blocked))
     if action == "BUY" and q > number(signal["max_buy_quantity"]):
-        raise ValueError("Order exceeds permitted per-buy budget")
+        raise ValidationError("Order exceeds permitted per-buy budget")
     if action == "SELL" and q > number(signal["max_sell_quantity"]):
-        raise ValueError("Order exceeds permitted sale quantity")
+        raise ValidationError("Order exceeds permitted sale quantity")
     return {**answer, "quantity": format(q, "f")}
 
 
 def validate_review(answer, requested_quantity):
     expected = {"decision", "reason", "risk_score", "modified_quantity", "rules_triggered"}
     if not isinstance(answer, dict) or set(answer) != expected:
-        raise ValueError("Guardian output has incorrect fields")
+        raise ValidationError("Guardian output has incorrect fields")
     if answer["decision"] not in {"APPROVE", "MODIFY", "BLOCK", "ESCALATE"}:
-        raise ValueError("Invalid Guardian decision")
+        raise ValidationError("Invalid Guardian decision")
     text(answer["reason"], 8000)
     risk = number(answer["risk_score"], model=True)
     if not 0 <= risk <= 100 or risk.as_tuple().exponent < -2:
-        raise ValueError("Risk score must be 0..100 with at most two decimals")
+        raise ValidationError("Risk score must be 0..100 with at most two decimals")
     rules = answer["rules_triggered"]
     if not isinstance(rules, list) or len(rules) > 100:
-        raise ValueError("Invalid triggered rules")
+        raise ValidationError("Invalid triggered rules")
     for rule in rules:
         text(rule, 255)
     if answer["decision"] == "MODIFY":
         q = quantity(answer["modified_quantity"], model=True)
         if q >= quantity(requested_quantity):
-            raise ValueError("MODIFY must strictly decrease requested quantity")
+            raise ValidationError("MODIFY must strictly decrease requested quantity")
         return {**answer, "modified_quantity": format(q, "f")}
     if answer["modified_quantity"] is not None:
-        raise ValueError("Only MODIFY can include a quantity")
+        raise ValidationError("Only MODIFY can include a quantity")
     return answer

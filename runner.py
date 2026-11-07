@@ -6,7 +6,7 @@ import time
 
 from client import ApiError, Cooldown, LedgerClient, SessionExpired, UncertainWrite
 from config import load_config
-from llm import OpenAIModel
+from llm import DeepSeekModel
 from storage import Store
 
 
@@ -44,7 +44,7 @@ def run(role):
             print("Read-only check complete; no model calls or Ledger writes made.")
             return
         store = Store(config["STATE_DIR"], role)
-        model = OpenAIModel(config["OPENAI_API_KEY"], config["OPENAI_MODEL"])
+        model = DeepSeekModel(config["DEEPSEEK_API_KEY"], config["DEEPSEEK_MODEL"])
         if role == "trader":
             from trader import Trader
             agent = Trader(api, model, store)

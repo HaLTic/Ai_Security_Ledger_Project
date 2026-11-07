@@ -1,7 +1,7 @@
 {
   "LEDGER_BASE_URL": "https://ledger.chanyeun.com/api/v1",
   "TRADER_API_KEY": "PASTE_YOUR_TRADER_KEY",
-  "OPENAI_API_KEY": "PASTE_YOUR_OPENAI_KEY",
-  "OPENAI_MODEL": "gpt-5.4-mini",
+  "DEEPSEEK_API_KEY": "PASTE_YOUR_DEEPSEEK_KEY",
+  "DEEPSEEK_MODEL": "deepseek-flash",
   "STATE_DIR": ".state"
 }

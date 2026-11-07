@@ -8,6 +8,7 @@ from pathlib import Path
 import tempfile
 
 from config import strict_json
+from validation import ValidationError
 
 
 def utc_now():
@@ -50,16 +51,16 @@ class Store:
         path = self.root / "theories" / f"{theory['id']}-{theory['version']}.json"
         if path.exists():
             if strict_json(path.read_text(encoding="utf-8")) != theory:
-                raise ValueError("Saved theory snapshot changed; investigate provenance")
+                raise ValidationError("Saved theory snapshot changed; investigate provenance")
         else:
             atomic_json(path, theory)
 
     def theory(self, theory_id, version):
         if type(theory_id) is not int or type(version) is not int or theory_id <= 0 or version <= 0:
-            raise ValueError("Missing valid order theory provenance")
+            raise ValidationError("Missing valid order theory provenance")
         path = self.root / "theories" / f"{theory_id}-{version}.json"
         if not path.exists():
-            raise ValueError("Exact submitted theory snapshot is unavailable")
+            raise ValidationError("Exact submitted theory snapshot is unavailable")
         return strict_json(path.read_text(encoding="utf-8"))
 
     @contextmanager

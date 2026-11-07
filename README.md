@@ -1,7 +1,7 @@
 # COSC 435: Trading Agent and AI Guardian
 
-Two Python programs for the course's simulated Ledger platform. Both use OpenAI's
-Responses API with strict JSON schemas, followed by independent local validation. Preview is the default;
+Two Python programs for the course's simulated Ledger platform. Both use DeepSeek's
+Responses API with JSON schemas, followed by independent local validation. Preview is the default;
 `--submit` enables writes to the simulated account. No model training is needed.
 
 ## 1. Prepare your account
@@ -12,13 +12,11 @@ Responses API with strict JSON schemas, followed by independent local validation
 3. Submit and activate a theory. This implementation supports `momentum` and
    `mean_reversion`. `custom` intentionally results in HOLD until you implement it.
 4. Create one `trader` key and one `guardian` key, never a `full` key.
-5. Create an [OpenAI project API key](https://platform.openai.com/api-keys) and ensure
-   your API project has billing or available credits and access to your chosen model.
-   Both configs default to `gpt-5.4-mini`, which supports structured output. Change
-   `OPENAI_MODEL` if you need another compatible model available to your account.
-   See [OpenAI's structured-output guide](https://developers.openai.com/api/docs/guides/structured-outputs),
-   [model documentation](https://developers.openai.com/api/docs/models/gpt-5.4-mini)
-   and [official Python SDK](https://developers.openai.com/api/reference/python).
+5. Create a [DeepSeek API key](https://platform.deepseek.com/api_keys) and ensure
+   your account has available API balance. Both configs default to `deepseek-flash`,
+   the model in DeepSeek's [Responses API guide](https://api-docs.deepseek.com/guides/responses_api/).
+   Change `DEEPSEEK_MODEL` if you need another compatible model available to your
+   account. Requests go directly to DeepSeek with your DeepSeek key.
 
 For a simple first theory, use momentum: buy when the lookback return reaches
 the positive threshold, sell held units at the negative threshold, otherwise HOLD.
@@ -43,18 +41,31 @@ python -m pip --python .\.venv\Scripts\python.exe install -r requirements.txt
 ```
 
 Edit the provided `config.trader.json` and `config.guardian.json` locally. Replace
-their placeholders with the corresponding Ledger key and your OpenAI key. The
-model is already set to `gpt-5.4-mini` and can be changed via `OPENAI_MODEL`.
+their placeholders with the corresponding Ledger key and your DeepSeek key. The
+model is already set to `deepseek-flash` and can be changed via `DEEPSEEK_MODEL`.
 Keep the Ledger keys separate: the trader config must not contain a guardian
 key and vice versa. Both configs should use the same `.state` directory so the
 guardian can read exact versioned theory snapshots. Use a different state directory
 for every student/account. Do not reuse another account's saved state.
 
-The only required provider field to fill in is `OPENAI_API_KEY`, in both private
-configs. The same OpenAI project key can serve both local agents; their Ledger keys
+The only required provider field to fill in is `DEEPSEEK_API_KEY`, in both private
+configs. The same DeepSeek key can serve both local agents; their Ledger keys
 remain separate. `LEDGER_BASE_URL` and `STATE_DIR` can stay as supplied. Configuration
 is read only from these files, so adding an environment variable alone does not
-replace a placeholder here. The application does not use Gemini credentials.
+replace a placeholder here. Keys and the model ID are loaded from your private files.
+
+The `openai` Python package stays in `requirements.txt` because DeepSeek supports
+its SDK. `llm.py` fixes its base URL to `https://api.deepseek.com`; only DeepSeek
+receives these model requests and the provider key. Ledger keys stay with Ledger.
+
+The adapter uses Responses `text.format` with `type: json_schema`, as documented
+in DeepSeek's [API reference](https://api-docs.deepseek.com/api/create-response/).
+DeepSeek's Chat Completions JSON mode is a different interface; this application
+uses Responses so it can send the existing course JSON schemas. The provider's
+schema output is still followed by local field, theory and security validation.
+Reasoning effort is set to `none` for these small decisions, with a 1,024-token
+output cap and a session-bounded timeout. Incomplete or invalid output leads to
+HOLD/ESCALATE; it is never accepted through a plain-text fallback.
 
 Private configs and `.state` are excluded by `.gitignore`. Submit only the two
 `*.example.json` files with placeholders. Do not paste keys into chat, prompts,
@@ -85,7 +96,7 @@ They can differ if the platform changed its descriptor. Unit tests cover the
 published baseline fixtures and a hand-calculated noise case; the full default
 quote fixtures and live API behavior require the actual platform descriptor.
 
-Preview one trading cycle. This calls OpenAI when eligible evidence is available but submits no proposal:
+Preview one trading cycle. This calls DeepSeek when eligible evidence is available but submits no proposal:
 
 ```powershell
 .\.venv\Scripts\python.exe trader.py --once
@@ -105,6 +116,14 @@ the portfolio after the first order. Only EXECUTED with a recorded fill is a tra
 Preview still makes read requests, model calls and local logs; it can incur provider
 charges. Re-running a preview does not guarantee the same later decision.
 
+If the trader says **No active submitted theory**, open Ledger's **Theory Submission**
+tab and submit/activate your theory; saving a draft is not sufficient. This check
+stops the cycle before any model call. Other failures identify their stage, such
+as theory validation, price replay, model request or model output validation.
+For **DeepSeek HTTP 402**, check your DeepSeek API balance and add funds there;
+Ledger's simulated cash does not fund model calls. Provider errors show fixed
+explanations without server response bodies, prompts or credentials.
+
 ## 4. Short sessions
 
 Run these in separate terminals with the same project interpreter and account:
@@ -123,11 +142,11 @@ prevents two copies of the same role using the same state directory.
 ## How decisions work
 
 - `trader.py`: reconcile earlier work, fetch valid theory/policy/evidence, compute
-  61 historical samples, ask OpenAI, validate its exact four fields, save intent,
+  61 historical samples, ask DeepSeek, validate its exact four fields, save intent,
   then propose at most one BUY/SELL. Invalid theory, replay or model output means HOLD.
 - `guardian.py`: independently fetch fresh evidence, apply hard rules, load the
   order's exact theory snapshot, check strategy compliance, and assess simple
-  anomalies. If permitted, ask OpenAI for the exact five-field review. Model or
+  anomalies. If permitted, ask DeepSeek for the exact five-field review. Model or
   evidence failures ESCALATE when a valid review can be sent.
 - `validation.py`: Decimal money, correct BUY-up/SELL-down cent rounding, exact
   and settled policy amounts, quantity precision, cash, holdings, quota equality,
@@ -140,8 +159,9 @@ prevents two copies of the same role using the same state directory.
   are executable; prose cannot override them. Position fraction limits each BUY,
   not total exposure. Repeated signals may accumulate a position.
 - `llm.py`: JSON schemas, trust-boundary prompts, bounded requests, no automatic
-  provider retries, no Ledger credentials. Requests use `store=False`; incomplete,
-  failed, refused or malformed responses fail safely. News and trader explanations are data.
+  SDK retries, no Ledger credentials. Truncated, refused, tool-call or malformed
+  responses fail safely. DeepSeek documents Responses as stateless; this adapter
+  sends no prior response ID or conversation state. News and trader explanations are data.
 - `client.py`: fixed canonical HTTPS origin, role endpoint allowlists, no redirects,
   1.1-second request spacing, read retries, shared cooldown and uncertain-write errors.
 - `storage.py`: atomic journals, saved immutable theory snapshots, role locks and
@@ -214,12 +234,13 @@ agent decisions; portfolio performance analysis, report and slides remain team w
 The design follows the supplied COSC 435 Project Description and Student Development
 Guide, especially sections 6-9 and Appendices A-D. The replay formula is adapted from
 Appendix A; the model schemas and HTTP transport requirements follow the guide.
-The provider adapter uses OpenAI's official SDK and structured-output documentation linked above.
+The provider adapter follows DeepSeek's official Responses API guide and reference
+linked above, through the OpenAI-compatible Python SDK.
 
 AI assistance: Codex generated the initial implementation, tests and these run
 instructions on 2026-11-07. The team should review, understand and validate the code,
 record subsequent AI assistance, and disclose it in the final report as required.
 No live credentials, authenticated API requests or paid model calls were used during
 initial development. SDK request construction and agent behavior were tested locally.
-Codex subsequently migrated the model adapter, private/example config fields,
-dependency and tests to OpenAI at the student's request. Ledger keys were preserved.
+Codex adapted the model integration, private/example config fields and mocked HTTP
+tests to DeepSeek at the student's request, preserving Ledger keys and local validation.

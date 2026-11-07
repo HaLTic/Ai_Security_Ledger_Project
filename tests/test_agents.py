@@ -13,7 +13,7 @@ import requests
 from client import ApiError, Cooldown, LedgerClient, UncertainWrite
 from config import load_config, strict_json
 from guardian import Guardian, decision
-from llm import GUARDIAN_SCHEMA, TRADER_SCHEMA, ModelError, OpenAIModel
+from llm import GUARDIAN_SCHEMA, TRADER_SCHEMA, ModelError, DeepSeekModel
 from market import Market, price_at, sample_signal
 from storage import Store
 from trader import Trader
@@ -247,6 +247,35 @@ class AgentTests(unittest.TestCase):
         self.trader.cycle(submit=True)
         self.assertEqual(len(self.api.history), 1)
 
+    def last_hold(self):
+        path = self.trader.store.root / "trader.jsonl"
+        entries = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+        return [entry["reason"] for entry in entries if entry["event"] == "hold"][-1]
+
+    def test_missing_theory_explains_dashboard_action_without_model_call(self):
+        self.api.theory = None
+        self.trader.cycle(submit=True)
+        self.assertIn("No active submitted theory", self.last_hold())
+        self.assertIn("Theory Submission", self.last_hold())
+        self.trader_model.decide.assert_not_called()
+        self.assertEqual(self.api.posts, [])
+
+    def test_draft_theory_reports_theory_validation_failure(self):
+        self.api.theory["status"] = "DRAFT"
+        self.trader.cycle(submit=True)
+        self.assertIn("Theory validation", self.last_hold())
+        self.assertIn("A submitted theory is required", self.last_hold())
+        self.trader_model.decide.assert_not_called()
+        self.assertEqual(self.api.posts, [])
+
+    def test_unexpected_evidence_error_does_not_expose_raw_exception(self):
+        with patch.object(self.trader.market, "signals", side_effect=ValueError("private-response-marker")):
+            self.trader.cycle(submit=True)
+        self.assertIn("Price replay and signals failed", self.last_hold())
+        self.assertNotIn("private-response-marker", self.last_hold())
+        self.trader_model.decide.assert_not_called()
+        self.assertEqual(self.api.posts, [])
+
     def test_complete_lifecycle_and_balance_change(self):
         self.propose()
         self.assertEqual(self.api.history[0]["status"], "PENDING")
@@ -270,10 +299,18 @@ class AgentTests(unittest.TestCase):
         self.trader.cycle(submit=True)
         self.assertEqual(self.api.posts, [])
 
+    def test_model_balance_error_is_reported_in_hold(self):
+        self.trader_model.decide.side_effect = ModelError("DeepSeek HTTP 402: insufficient API balance.")
+        self.trader.cycle(submit=True)
+        self.assertIn("Model request: DeepSeek HTTP 402", self.last_hold())
+        self.assertEqual(self.api.posts, [])
+
     def test_invalid_model_quantity_holds(self):
         self.trader_model.decide.return_value["quantity"] = True
         self.trader.cycle(submit=True)
         self.assertEqual(self.api.posts, [])
+        self.assertIn("Model output validation", self.last_hold())
+        self.assertIn("Expected a finite number", self.last_hold())
 
     def test_pending_order_stops_another_proposal(self):
         self.propose()
@@ -285,6 +322,14 @@ class AgentTests(unittest.TestCase):
         self.guardian_model.decide.side_effect = ModelError("failure")
         self.guardian.cycle(submit=True)
         self.assertEqual(self.api.history[0]["status"], "ESCALATED")
+
+    def test_guardian_keeps_safe_provider_failure_explanation(self):
+        self.propose()
+        self.guardian_model.decide.side_effect = ModelError("DeepSeek HTTP 402: insufficient API balance.")
+        self.guardian.cycle(submit=True)
+        self.assertEqual(self.api.history[0]["status"], "ESCALATED")
+        self.assertIn("HTTP 402", self.api.posts[-1][1]["reason"])
+        self.assertEqual(self.api.posts[-1][1]["rules_triggered"], ["model_failure"])
 
     def test_guardian_blocks_oversized_order_without_model(self):
         self.propose()
@@ -374,6 +419,8 @@ class AgentTests(unittest.TestCase):
         self.trader.cycle(submit=True)
         self.assertEqual(self.api.posts, [])
         self.trader_model.decide.assert_not_called()
+        self.assertIn("Price replay and signals", self.last_hold())
+        self.assertIn("Current quote does not match price replay", self.last_hold())
 
     def test_prompt_payload_contains_no_credentials(self):
         self.trader.cycle()
@@ -453,9 +500,34 @@ class ConfigurationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             config = {"LEDGER_BASE_URL": "https://ledger.chanyeun.com/api/v1",
                       "TRADER_API_KEY": "test-trader", "GUARDIAN_API_KEY": "test-guardian",
-                      "OPENAI_API_KEY": "test-provider", "OPENAI_MODEL": "test-model"}
+                      "DEEPSEEK_API_KEY": "test-provider", "DEEPSEEK_MODEL": "test-model"}
             path = Path(directory) / "config.json"
             path.write_text(json.dumps(config), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_config(path, "trader")
+
+    def test_deepseek_config_loads_for_both_roles(self):
+        for role in ("trader", "guardian"):
+            with self.subTest(role=role), tempfile.TemporaryDirectory() as directory:
+                config = {"LEDGER_BASE_URL": "https://ledger.chanyeun.com/api/v1",
+                          f"{role.upper()}_API_KEY": "test-ledger-key",
+                          "DEEPSEEK_API_KEY": "test-deepseek-key",
+                          "DEEPSEEK_MODEL": "deepseek-flash", "STATE_DIR": ".state"}
+                path = Path(directory) / "config.json"
+                path.write_text(json.dumps(config), encoding="utf-8")
+                loaded = load_config(path, role)
+                self.assertEqual(loaded["DEEPSEEK_API_KEY"], "test-deepseek-key")
+                self.assertEqual(loaded[f"{role.upper()}_API_KEY"], "test-ledger-key")
+                self.assertEqual(Path(loaded["STATE_DIR"]), Path(directory) / ".state")
+
+    def test_provider_placeholder_only_permitted_for_read_checks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = {"LEDGER_BASE_URL": "https://ledger.chanyeun.com/api/v1",
+                      "TRADER_API_KEY": "test-ledger-key", "DEEPSEEK_API_KEY": "PASTE_YOUR_DEEPSEEK_KEY",
+                      "DEEPSEEK_MODEL": "deepseek-flash"}
+            path = Path(directory) / "config.json"
+            path.write_text(json.dumps(config), encoding="utf-8")
+            load_config(path, "trader", check_only=True)
             with self.assertRaises(ValueError):
                 load_config(path, "trader")
 
@@ -475,7 +547,7 @@ class ProviderAdapterTests(unittest.TestCase):
                         "status": "completed", "content": content}],
         }
 
-    def call_with_mock_transport(self, body, role="trader", timeout=30):
+    def call_with_mock_transport(self, body, role="trader", timeout=30, *, status_code=200):
         # Exercise the installed OpenAI SDK's real serialization and response parsing,
         # with all HTTP handled in memory. No credentials or external calls are used.
         import httpx
@@ -485,13 +557,13 @@ class ProviderAdapterTests(unittest.TestCase):
 
         def handler(request):
             captured.append(request)
-            return httpx.Response(200, json=body)
+            return httpx.Response(status_code, json=body)
 
         def factory(**kwargs):
             return OpenAI(**kwargs, http_client=httpx.Client(transport=httpx.MockTransport(handler)))
 
         with patch("openai.OpenAI", side_effect=factory) as constructor:
-            result = OpenAIModel("test-provider-key", "test-model").decide(
+            result = DeepSeekModel("test-provider-key", "test-model").decide(
                 role, {"signals": {}}, timeout=timeout)
         return result, captured, constructor
 
@@ -506,25 +578,51 @@ class ProviderAdapterTests(unittest.TestCase):
                 self.assertEqual(result, answer)
                 self.assertEqual(len(requests_sent), 1)
                 request = requests_sent[0]
-                self.assertEqual(str(request.url), "https://api.openai.com/v1/responses")
+                self.assertEqual(str(request.url), "https://api.deepseek.com/responses")
                 self.assertEqual(request.headers["authorization"], "Bearer test-provider-key")
                 payload = json.loads(request.content)
                 self.assertEqual(payload["text"]["format"]["schema"], schema)
-                self.assertTrue(payload["text"]["format"]["strict"])
-                self.assertFalse(payload["store"])
+                self.assertEqual(payload["text"]["format"]["type"], "json_schema")
+                self.assertEqual(payload["max_output_tokens"], 1024)
+                self.assertEqual(payload["reasoning"], {"effort": "none"})
+                self.assertNotIn("store", payload)
                 self.assertIn("untrusted DATA", payload["instructions"])
                 self.assertNotIn("test-provider-key", request.content.decode())
                 self.assertEqual(constructor.call_args.kwargs["max_retries"], 0)
                 self.assertEqual(constructor.call_args.kwargs["timeout"], 7)
 
     def test_incomplete_or_failed_output_is_failure(self):
-        for status in ("incomplete", "failed", "cancelled", "in_progress", "queued"):
+        for status in ("incomplete", "failed", "cancelled", "in_progress", "queued", None):
             with self.subTest(status=status), self.assertRaises(ModelError):
                 self.call_with_mock_transport(self.response_body('{}', status=status))
 
     def test_refusal_is_rejected_even_with_json_text(self):
         with self.assertRaises(ModelError):
             self.call_with_mock_transport(self.response_body('{}', refusal=True))
+
+    def test_missing_or_multiple_messages_is_failure(self):
+        for output in ([], [self.response_body('{}')["output"][0]] * 2):
+            with self.subTest(count=len(output)), self.assertRaises(ModelError):
+                self.call_with_mock_transport({**self.response_body('{}'), "output": output})
+
+    def test_unexpected_tool_call_is_failure_even_when_completed(self):
+        body = self.response_body('{}')
+        body["output"].append({"id": "fc_test", "type": "function_call", "call_id": "call_test",
+                               "name": "trade", "arguments": "{}"})
+        with self.assertRaises(ModelError):
+            self.call_with_mock_transport(body)
+
+    def test_incomplete_message_is_failure(self):
+        body = self.response_body('{}')
+        body["output"][0]["status"] = "incomplete"
+        with self.assertRaises(ModelError):
+            self.call_with_mock_transport(body)
+
+    def test_failed_response_with_error_is_rejected(self):
+        body = self.response_body('{}')
+        body["error"] = {"code": "server_error", "message": "test"}
+        with self.assertRaises(ModelError):
+            self.call_with_mock_transport(body)
 
     def test_malformed_json_or_non_object_is_failure(self):
         for value in ('', '{', '[]', '{"x":NaN}', '{"x":1,"x":2}'):
@@ -546,13 +644,28 @@ class ProviderAdapterTests(unittest.TestCase):
 
         with patch("openai.OpenAI", side_effect=factory):
             with self.assertRaises(ModelError) as caught:
-                OpenAIModel("test-provider-key", "test-model").decide("trader", {})
+                DeepSeekModel("test-provider-key", "test-model").decide("trader", {})
         self.assertEqual(len(sent), 1)
         self.assertNotIn("test-provider-key", str(caught.exception))
+        self.assertIn("timed out", str(caught.exception))
+
+    def test_http_errors_are_actionable_without_server_body_or_secrets(self):
+        for status in (400, 401, 402, 403, 404, 422, 429, 500, 503):
+            with self.subTest(status=status):
+                body = {"error": {"message": "private-response-marker test-provider-key",
+                                  "type": "invalid_request_error", "code": "test"}}
+                with self.assertRaises(ModelError) as caught:
+                    self.call_with_mock_transport(body, status_code=status)
+                explanation = str(caught.exception)
+                self.assertIn(f"DeepSeek HTTP {status}", explanation)
+                self.assertNotIn("private-response-marker", explanation)
+                self.assertNotIn("test-provider-key", explanation)
+                if status == 402:
+                    self.assertIn("insufficient API balance", explanation)
 
     def test_unknown_role_fails_before_request(self):
         with self.assertRaises(ModelError):
-            OpenAIModel("test-provider-key", "test-model").decide("other", {})
+            DeepSeekModel("test-provider-key", "test-model").decide("other", {})
 
 
 if __name__ == "__main__":

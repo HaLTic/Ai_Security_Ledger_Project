@@ -94,7 +94,9 @@ class Guardian:
             answer = self.assess(pending, exact_order)
         except (Cooldown, SessionExpired):
             raise
-        except (ApiError, ModelError, ValueError, KeyError, TypeError, ArithmeticError):
+        except ModelError as error:
+            answer = decision("ESCALATE", str(error), ["model_failure"], 90)
+        except (ApiError, ValueError, KeyError, TypeError, ArithmeticError):
             answer = decision("ESCALATE", "Required context, provenance or model judgment could not be validated.",
                               ["evidence_or_model_failure"], 90)
         if answer["decision"] in {"APPROVE", "MODIFY"}:

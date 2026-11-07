@@ -7,7 +7,7 @@ from decimal import Decimal
 import math
 import time
 
-from validation import bounded_quantity, holding, names, number, validate_policy, validate_theory
+from validation import ValidationError, bounded_quantity, holding, names, number, validate_policy, validate_theory
 
 
 def price_at(model, symbol, timestamp):
@@ -35,17 +35,17 @@ def price_at(model, symbol, timestamp):
 def sample_signal(model, quote, lookback):
     now = quote["timestamp_unix"]
     if type(now) is not int or now < model["epoch_unix"]:
-        raise ValueError("Invalid quote timestamp")
+        raise ValidationError("Invalid quote timestamp")
     start = now - lookback * 60
     if start < model["epoch_unix"]:
-        raise ValueError("Insufficient history for theory lookback")
+        raise ValidationError("Insufficient history for theory lookback")
     if quote["model_version"] != model["version"]:
-        raise ValueError("Market descriptor version mismatch")
+        raise ValidationError("Market descriptor version mismatch")
     samples = [number(price_at(model, quote["symbol"], start + (now - start) * i / 60))
                for i in range(61)]
     current = number(quote["price"])
     if current <= 0 or abs(samples[-1] - current) > Decimal("0.00000001"):
-        raise ValueError("Current quote does not match price replay")
+        raise ValidationError("Current quote does not match price replay")
     return {
         "price": str(current), "timestamp_unix": now,
         "return_pct": str((current / samples[0] - 1) * 100),
@@ -62,7 +62,7 @@ class Market:
         validate_theory(theory)
         validate_policy(policy)
         if theory["strategy"] == "custom":
-            raise ValueError("This basic implementation supports momentum and mean_reversion; select one")
+            raise ValidationError("This basic implementation supports momentum and mean_reversion; select one")
         if (self.model is None or time.monotonic() - self.fetched_at > 180
                 or any(q["model_version"] != self.model["version"] for q in quotes)):
             self.refresh(api)
@@ -85,7 +85,7 @@ class Market:
             if symbol not in eligible:
                 continue
             if symbol in signals:
-                raise ValueError("Duplicate market quote")
+                raise ValidationError("Duplicate market quote")
             signal = sample_signal(self.model, quote, theory["lookback_minutes"])
             price = number(signal["price"])
             position = holding(portfolio, symbol)
@@ -117,5 +117,5 @@ class Market:
                 "max_sell_quantity": str(min(held, bounded_quantity(policy["max_transaction_amount"], price))),
             }
         if set(signals) != eligible:
-            raise ValueError("Missing eligible market quotes")
+            raise ValidationError("Missing eligible market quotes")
         return signals

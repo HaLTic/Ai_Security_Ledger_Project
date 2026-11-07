@@ -4,7 +4,7 @@ from client import ApiError, Cooldown, SessionExpired, UncertainWrite
 from llm import ModelError
 from market import Market
 from storage import utc_now
-from validation import names, validate_policy, validate_theory, validate_trader
+from validation import ValidationError, names, validate_policy, validate_theory, validate_trader
 
 UNRESOLVED = {"PENDING", "ESCALATED"}
 FINAL = {"EXECUTED", "BLOCKED", "REJECTED"}
@@ -53,27 +53,43 @@ class Trader:
             if policy[f"trades_last_{period}"] >= policy[f"max_trades_per_{period}"]:
                 self.hold(f"Executed-trade {period} quota is exhausted.")
                 return
+        stage = "Theory validation"
         try:
-            theory = validate_theory(self.api.get("theory.php")["theory"])
+            theory = self.api.get("theory.php")["theory"]
+            if theory is None:
+                self.hold("No active submitted theory. Open Ledger > Theory Submission, submit and activate your theory.")
+                return
+            theory = validate_theory(theory)
             eligible = set(theory["selected_symbols"]) & set(names(policy["allowed_symbols"]))
             if not eligible:
                 self.hold("Theory and policy have no eligible currency in common.")
                 return
+            stage = "Theory snapshot"
             self.store.snapshot(theory)
+            stage = "Market quotes"
             quotes = self.api.get("market_prices.php", symbols=",".join(sorted(eligible)))["prices"]
+            stage = "Portfolio evidence"
             portfolio = self.api.get("portfolio.php")
             self.store.log("portfolio_sample", portfolio=portfolio, theory_id=theory["id"],
                            theory_version=theory["version"])
+            stage = "Market news"
             news = self.api.get("market_news.php")["news"]
+            stage = "Price replay and signals"
             signals = self.market.signals(self.api, quotes, theory, policy, portfolio)
             payload = {"theory": theory, "policy": policy, "portfolio": portfolio,
                        "signals": signals, "news": news}
+            stage = "Model request"
             answer = self.model.decide("trader", payload, timeout=min(30, self.api.remaining()))
+            stage = "Model output validation"
             order = validate_trader(answer, theory, policy, portfolio, signals)
         except (Cooldown, SessionExpired):
             raise
-        except (ModelError, ValueError, KeyError, TypeError, ArithmeticError):
-            self.hold("Theory, evidence or model output failed validation; no proposal sent.")
+        except (ModelError, ValidationError) as error:
+            self.hold(f"{stage}: {error} No proposal sent.")
+            return
+        except (ValueError, KeyError, TypeError, ArithmeticError) as error:
+            # Unexpected third-party exceptions may contain response text or secrets.
+            self.hold(f"{stage} failed ({type(error).__name__}); received data could not be validated. No proposal sent.")
             return
         self.store.log("trader_decision", theory_id=theory["id"], theory_version=theory["version"],
                        signals=signals, decision=order)

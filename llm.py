@@ -1,4 +1,4 @@
-"""OpenAI Responses adapter. Ledger credentials never enter this module."""
+"""DeepSeek Responses adapter with JSON-schema output and independent local gates."""
 
 import json
 
@@ -55,7 +55,7 @@ class ModelError(RuntimeError):
     pass
 
 
-class OpenAIModel:
+class DeepSeekModel:
     def __init__(self, key, model):
         self.key, self.model = key, model
 
@@ -70,29 +70,55 @@ class OpenAIModel:
 
             with OpenAI(
                 api_key=self.key,
-                base_url="https://api.openai.com/v1",
+                base_url="https://api.deepseek.com",
                 timeout=max(0.1, timeout), max_retries=0,
             ) as client:
                 reply = client.responses.create(
                     model=self.model,
                     instructions=prompt,
                     input=[{"role": "user", "content": json.dumps(payload, allow_nan=False)}],
-                    text={"format": {"type": "json_schema", "name": f"{role}_decision",
-                                     "schema": schema, "strict": True}},
-                    store=False,
+                    text={"format": {"type": "json_schema", "name": f"{role}_decision", "schema": schema}},
+                    reasoning={"effort": "none"}, max_output_tokens=1024,
                 )
             if reply.status != "completed" or reply.error is not None:
-                raise ValueError("Model output incomplete or failed")
-            if any(getattr(part, "type", None) == "refusal"
-                   for item in reply.output for part in (getattr(item, "content", None) or [])):
-                raise ValueError("Model refused the request")
-            if not reply.output_text:
-                raise ValueError("Model returned no JSON")
+                raise ModelError("DeepSeek returned an incomplete or failed response.")
+            messages = [item for item in reply.output if item.type == "message"]
+            if len(messages) != 1 or any(item.type not in {"message", "reasoning"} for item in reply.output):
+                raise ModelError("DeepSeek must return exactly one decision message without tool calls.")
+            message = messages[0]
+            if message.status != "completed" or message.role != "assistant":
+                raise ModelError("DeepSeek returned an incomplete decision message.")
+            if any(part.type != "output_text" for part in message.content):
+                raise ModelError("DeepSeek refused the request or returned unexpected content.")
+            if not reply.output_text or not reply.output_text.strip():
+                raise ModelError("DeepSeek returned no JSON decision.")
             answer = strict_json(reply.output_text)
             if not isinstance(answer, dict):
-                raise ValueError("Expected JSON object")
+                raise ModelError("DeepSeek must return a JSON object.")
             # Exact fields and business constraints are checked by validation.py.
             return answer
-        except Exception:
+        except ModelError:
+            raise
+        except Exception as error:
             # Provider exceptions may contain prompt fragments or authentication details.
-            raise ModelError("Model call failed, was refused, or returned invalid JSON") from None
+            status = getattr(error, "status_code", None)
+            if type(status) is int and 100 <= status <= 599:
+                explanation = {
+                    400: "request or JSON schema rejected; check the configured model and API compatibility",
+                    401: "API key rejected; check DEEPSEEK_API_KEY in the private config",
+                    402: "insufficient API balance; add funds to your DeepSeek API account",
+                    403: "access denied; check your DeepSeek account permissions",
+                    404: "model or endpoint not found; check DEEPSEEK_MODEL",
+                    422: "request parameters rejected; check the configured model and API compatibility",
+                    429: "rate limit reached; wait before trying again",
+                    500: "server error; try again later",
+                    503: "service overloaded; try again later",
+                }.get(status, "model request failed")
+                message = f"DeepSeek HTTP {status}: {explanation}."
+            elif type(error).__name__ == "APITimeoutError":
+                message = "DeepSeek request timed out; try again later."
+            elif isinstance(error, (ValueError, KeyError, TypeError, AttributeError)):
+                message = "DeepSeek returned malformed JSON or an unexpected response shape."
+            else:
+                message = "DeepSeek connection or SDK failed; check the network and installed dependencies."
+            raise ModelError(message) from None
