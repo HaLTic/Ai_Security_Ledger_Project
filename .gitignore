@@ -1,0 +1,12 @@
+.venv/
+.idea/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.state/
+config.*.json
+!config.*.example.json
+.env
+.env.*
+coverage.xml
+.coverage
