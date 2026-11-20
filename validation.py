@@ -11,9 +11,43 @@ SYMBOLS = {"BTC", "ETH", "DOGE", "XMR", "XRP", "SOL"}
 CENT = Decimal("0.01")
 UNIT = Decimal("1e-10")
 INJECTION_PHRASES = (
-    "ignore previous", "ignore all previous", "skip guardian", "bypass guardian",
-    "reveal secrets", "reveal the api", "system prompt", "override policy",
+    "ignore previous", "ignore all previous", "disregard previous", "forget previous",
+    "skip guardian", "bypass guardian", "disable guardian", "reveal secrets",
+    "reveal the api", "system prompt", "new system instruction", "override policy",
+    "execute immediately", "force buy", "force sell", "withdraw all",
+    "approve this order", "ignore safety", "ignore all rules",
 )
+
+
+def scan_untrusted_text(value):
+    if not isinstance(value, str) or not value.strip():
+        return []
+    lowered = value.casefold()
+    return [phrase for phrase in INJECTION_PHRASES if phrase in lowered]
+
+
+def scan_news_items(news, symbol=None):
+    if not isinstance(news, list):
+        return []
+    warnings = []
+    target = symbol.upper() if isinstance(symbol, str) and symbol.strip() else None
+    for item in news:
+        if not isinstance(item, dict):
+            continue
+        combined = f"{item.get('headline') or ''}\n{item.get('body') or ''}"
+        matches = scan_untrusted_text(combined)
+        if not matches:
+            continue
+        item_symbol = str(item.get("symbol") or "").upper()
+        warnings.append({
+            "id": item.get("id"),
+            "symbol": item_symbol or None,
+            "source_name": item.get("source_name"),
+            "source_trusted": bool(item.get("source_trusted")),
+            "matched_phrases": matches,
+            "matches_order_symbol": (target is None or not item_symbol or item_symbol == target),
+        })
+    return warnings
 
 
 def number(value, *, model=False):
@@ -162,8 +196,12 @@ def hard_rules(order, policy, portfolio, price):
         blocked.append("insufficient_holdings")
     if amount >= number(policy["escalation_threshold"]):
         review.append("escalation_threshold")
-    reasoning = text(order.get("reasoning"), 16000).casefold()
-    if any(phrase in reasoning for phrase in INJECTION_PHRASES):
+    raw_reasoning = order.get("reasoning")
+    if not isinstance(raw_reasoning, str) or not raw_reasoning.strip() or "\x00" in raw_reasoning:
+        review.append("missing_or_invalid_reasoning")
+    elif len(raw_reasoning.encode("utf-8")) > 16000:
+        review.append("reasoning_exceeds_byte_limit")
+    elif scan_untrusted_text(raw_reasoning):
         review.append("suspicious_instructions")
     return blocked, review
 

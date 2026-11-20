@@ -1,22 +1,22 @@
-# COSC 435: Trading Agent and AI Guardian
+# COSC 435: Zero-Trust Dual-Model Trading Agent & AI Guardian
 
-Two Python programs for the course's simulated Ledger platform. Both use DeepSeek's
-Responses API with JSON schemas, followed by independent local validation. Preview is the default;
-`--submit` enables writes to the simulated account. No model training is needed.
+Two Python programs for the course's simulated Ledger platform, supporting both
+**DeepSeek Responses API** (`deepseek-flash`) and **Google Gemini 2026 Interactions API**
+(`gemini-3.8-flash` / `gemini-3.5-flash-lite`), hardened untrusted-news prompt-injection
+scanning, SHA-256 hash-chained audit logs, and a zero-key local **SOC Audit Dashboard**
+(`dashboard.py`). Preview is the default; `--submit` enables writes to the simulated account.
 
 ## 1. Prepare your account
 
-1. Register at <https://ledger.chanyeun.com> with your university email.
-2. Assign one distinct currency to each team member. In your account, enable only
-   your assigned currency in Security Policy and in your submitted theory.
-3. Submit and activate a theory. This implementation supports `momentum` and
-   `mean_reversion`. `custom` intentionally results in HOLD until you implement it.
-4. Create one `trader` key and one `guardian` key, never a `full` key.
-5. Create a [DeepSeek API key](https://platform.deepseek.com/api_keys) and ensure
-   your account has available API balance. Both configs default to `deepseek-flash`,
-   the model in DeepSeek's [Responses API guide](https://api-docs.deepseek.com/guides/responses_api/).
-   Change `DEEPSEEK_MODEL` if you need another compatible model available to your
-   account. Requests go directly to DeepSeek with your DeepSeek key.
+1. Register at <https://ledger.chanyeun.com> with your university email (`@ku.ac.ae`).
+2. Assign one distinct currency per team member (`BTC`, `ETH`, `SOL`, `XRP`), and enable
+   only your assigned currency in your account's Security Policy and submitted Theory.
+   Set `escalation_threshold` below `max_transaction_amount` (e.g., `$2,000` vs `$10,000`).
+3. Create one `trader` key and one `guardian` key, never a `full` key.
+4. Choose `LLM_PROVIDER` per agent config:
+   - `"deepseek"` (default): `DEEPSEEK_API_KEY` + `DEEPSEEK_MODEL: "deepseek-flash"` (DeepSeek Responses API).
+   - `"gemini"`: `GOOGLE_API_KEY` + `GEMINI_MODEL: "gemini-3.8-flash"` (Google Gemini Interactions API; free tier available in Google AI Studio; templates in `config.*.gemini.example.json`).
+   - Running DeepSeek for Trader and Gemini for Guardian provides cross-provider model diversity.
 
 For a simple first theory, use momentum: buy when the lookback return reaches
 the positive threshold, sell held units at the negative threshold, otherwise HOLD.
@@ -237,10 +237,28 @@ Appendix A; the model schemas and HTTP transport requirements follow the guide.
 The provider adapter follows DeepSeek's official Responses API guide and reference
 linked above, through the OpenAI-compatible Python SDK.
 
-AI assistance: Codex generated the initial implementation, tests and these run
-instructions on 2026-11-07. The team should review, understand and validate the code,
-record subsequent AI assistance, and disclose it in the final report as required.
-No live credentials, authenticated API requests or paid model calls were used during
-initial development. SDK request construction and agent behavior were tested locally.
-Codex adapted the model integration, private/example config fields and mocked HTTP
-tests to DeepSeek at the student's request, preserving Ledger keys and local validation.
+AI assistance: OpenAI Codex generated the initial implementation, tests and these run
+instructions on 2026-11-07. Antigravity (Gemini) assisted on 2026-11-20 with adding the
+`google-genai` Interactions API Gemini adapter (`gemini-3.8-flash`), untrusted market news
+prompt-injection scanning, `rapid_direction_flip` anomaly escalation, proposal-tick drift
+verification, SHA-256 hash chaining on `.jsonl` logs, and the read-only local SOC Audit
+Dashboard (`dashboard.py` + `audit_dashboard.html`) connected directly to `.state/`.
+
+## Live Audit Console & Verification Commands
+
+```powershell
+# 1. Run full unit test suite
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+
+# 2. Verify live Ledger keys & market replay (read-only)
+.\.venv\Scripts\python.exe trader.py --check
+.\.venv\Scripts\python.exe guardian.py --check
+.\.venv\Scripts\python.exe verify_market.py
+
+# 3. Preview 1 cycle without submitting to Ledger
+.\.venv\Scripts\python.exe trader.py --once
+.\.venv\Scripts\python.exe guardian.py --once
+
+# 4. Launch zero-key SOC Audit Dashboard connected to real .state/ (http://127.0.0.1:8765)
+.\.venv\Scripts\python.exe dashboard.py --state-dir .state --port 8765
+```

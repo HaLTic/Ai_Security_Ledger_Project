@@ -2,6 +2,7 @@
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,54 @@ import tempfile
 
 from config import strict_json
 from validation import ValidationError
+
+
+def _canonical_bytes(entry):
+    return json.dumps(entry, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+
+
+def _last_chain_link(path):
+    if not path.exists():
+        return 0, "GENESIS"
+    last = None
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        if raw.strip():
+            last = raw
+    if last is None:
+        return 0, "GENESIS"
+    obj = strict_json(last)
+    return int(obj.get("seq", 0)), str(obj.get("record_hash", "GENESIS"))
+
+
+def verify_chain(path):
+    path = Path(path)
+    if not path.exists():
+        return {"valid": True, "count": 0, "broken_seq": None, "reason": "No log file yet"}
+    expected_seq = 1
+    expected_prev = "GENESIS"
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        if not raw.strip():
+            continue
+        try:
+            obj = strict_json(raw)
+        except (ValueError, TypeError):
+            return {"valid": False, "count": expected_seq - 1, "broken_seq": expected_seq,
+                    "reason": "Malformed JSON log record"}
+        if not isinstance(obj, dict) or obj.get("seq") != expected_seq or obj.get("prev_hash") != expected_prev:
+            return {"valid": False, "count": expected_seq - 1, "broken_seq": expected_seq,
+                    "reason": "Sequence or previous-hash link mismatch"}
+        record_hash = obj.get("record_hash")
+        if not isinstance(record_hash, str) or len(record_hash) != 64:
+            return {"valid": False, "count": expected_seq - 1, "broken_seq": expected_seq,
+                    "reason": "Missing or invalid SHA-256 record hash"}
+        payload = {k: v for k, v in obj.items() if k != "record_hash"}
+        actual = hashlib.sha256(_canonical_bytes(payload)).hexdigest()
+        if actual != record_hash:
+            return {"valid": False, "count": expected_seq - 1, "broken_seq": expected_seq,
+                    "reason": "SHA-256 payload digest mismatch (tampered record)"}
+        expected_seq += 1
+        expected_prev = record_hash
+    return {"valid": True, "count": expected_seq - 1, "broken_seq": None, "reason": "SHA-256 chain verified"}
 
 
 def utc_now():
@@ -44,8 +93,13 @@ class Store:
         atomic_json(self.journal, state)
 
     def log(self, event, **fields):
-        with (self.root / f"{self.role}.jsonl").open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps({"time": utc_now(), "event": event, **fields}, allow_nan=False) + "\n")
+        log_path = self.root / f"{self.role}.jsonl"
+        prev_seq, prev_hash = _last_chain_link(log_path)
+        entry = {**fields, "seq": prev_seq + 1, "time": utc_now(), "event": event, "prev_hash": prev_hash}
+        record_hash = hashlib.sha256(_canonical_bytes(entry)).hexdigest()
+        full_entry = {**entry, "record_hash": record_hash}
+        with log_path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(full_entry, allow_nan=False) + "\n")
 
     def snapshot(self, theory):
         path = self.root / "theories" / f"{theory['id']}-{theory['version']}.json"

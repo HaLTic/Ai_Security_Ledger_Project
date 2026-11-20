@@ -122,3 +122,77 @@ class DeepSeekModel:
             else:
                 message = "DeepSeek connection or SDK failed; check the network and installed dependencies."
             raise ModelError(message) from None
+
+
+class GeminiModel:
+    def __init__(self, key, model):
+        self.key, self.model = key, model
+
+    def decide(self, role, payload, *, timeout=30):
+        if role not in {"trader", "guardian"}:
+            raise ModelError("Unknown agent role")
+        schema = TRADER_SCHEMA if role == "trader" else GUARDIAN_SCHEMA
+        prompt = TRADER_PROMPT if role == "trader" else GUARDIAN_PROMPT
+        try:
+            # Lazy import keeps local unit tests independent of provider credentials.
+            from google import genai
+            from google.genai import types
+
+            client = genai.Client(
+                api_key=self.key,
+                http_options=types.HttpOptions(
+                    timeout=max(1000, int(timeout * 1000)),
+                    retry_options=types.HttpRetryOptions(attempts=1),
+                ),
+            )
+            reply = client.interactions.create(
+                model=self.model,
+                system_instruction=prompt,
+                input=json.dumps(payload, allow_nan=False),
+                response_format={
+                    "type": "text",
+                    "mime_type": "application/json",
+                    "schema": schema,
+                },
+                generation_config={"max_output_tokens": 1024},
+                store=False,
+                timeout=max(0.1, float(timeout)),
+            )
+            if getattr(reply, "status", None) != "completed" or getattr(reply, "errors", None):
+                raise ModelError("Gemini returned an incomplete or failed interaction.")
+            text_out = getattr(reply, "output_text", None)
+            if not text_out or not text_out.strip():
+                raise ModelError("Gemini returned no JSON decision.")
+            answer = strict_json(text_out)
+            if not isinstance(answer, dict):
+                raise ModelError("Gemini must return a JSON object.")
+            return answer
+        except ModelError:
+            raise
+        except Exception as error:
+            status = getattr(error, "code", None) or getattr(error, "status_code", None)
+            if type(status) is int and 100 <= status <= 599:
+                explanation = {
+                    400: "request or JSON schema rejected; check GEMINI_MODEL and Interactions API support",
+                    401: "API key rejected; check GOOGLE_API_KEY in the private config",
+                    403: "access denied; check your Google AI Studio permissions",
+                    404: "model not found; check GEMINI_MODEL (use gemini-3.8-flash or gemini-3.5-flash-lite)",
+                    429: "rate limit reached; wait before trying again",
+                    500: "server error; try again later",
+                    503: "service overloaded; try again later",
+                }.get(status, "model request failed")
+                message = f"Gemini HTTP {status}: {explanation}."
+            elif "timeout" in type(error).__name__.lower() or isinstance(error, TimeoutError):
+                message = "Gemini request timed out; try again later."
+            elif isinstance(error, (ValueError, KeyError, TypeError, AttributeError)):
+                message = "Gemini returned malformed JSON or an unexpected response shape."
+            else:
+                message = "Gemini connection or SDK failed; check the network and installed dependencies."
+            raise ModelError(message) from None
+
+
+def build_model(config):
+    provider = config.get("LLM_PROVIDER", "deepseek")
+    if provider == "gemini":
+        return GeminiModel(config["GOOGLE_API_KEY"], config["GEMINI_MODEL"])
+    return DeepSeekModel(config["DEEPSEEK_API_KEY"], config["DEEPSEEK_MODEL"])

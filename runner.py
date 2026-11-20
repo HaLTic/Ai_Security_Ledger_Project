@@ -6,7 +6,7 @@ import time
 
 from client import ApiError, Cooldown, LedgerClient, SessionExpired, UncertainWrite
 from config import load_config
-from llm import DeepSeekModel
+from llm import build_model
 from storage import Store
 
 
@@ -44,17 +44,23 @@ def run(role):
             print("Read-only check complete; no model calls or Ledger writes made.")
             return
         store = Store(config["STATE_DIR"], role)
-        model = DeepSeekModel(config["DEEPSEEK_API_KEY"], config["DEEPSEEK_MODEL"])
+        model = build_model(config)
+        provider_meta = {
+            "provider": config["LLM_PROVIDER"],
+            "model": config["GEMINI_MODEL"] if config["LLM_PROVIDER"] == "gemini" else config["DEEPSEEK_MODEL"],
+        }
         if role == "trader":
             from trader import Trader
-            agent = Trader(api, model, store)
+            agent = Trader(api, model, store, provider_meta=provider_meta)
         else:
             from guardian import Guardian
-            agent = Guardian(api, model, store)
+            agent = Guardian(api, model, store, provider_meta=provider_meta)
         with store.lock():
             if recovering:
                 agent.recover(transaction_id=args.resolve_id, confirm_no_order=args.confirm_no_order)
                 return
+            store.log("session_start", role=role, **provider_meta, submit=bool(args.submit), loop=bool(args.loop))
+            print(f"LLM active: {provider_meta['provider']} ({provider_meta['model']})")
             print("SUBMIT enabled: simulated Ledger writes permitted." if args.submit else
                   "PREVIEW mode: model calls permitted, Ledger writes disabled.")
             while True:
