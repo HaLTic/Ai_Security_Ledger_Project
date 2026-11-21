@@ -1,7 +1,7 @@
-"""Read-only loopback SOC Audit Dashboard connected strictly to real .state/ logs.
+"""Read-only loopback log viewer for .state/ agent journals and hash-chained logs.
 
 Strictly read-only: never reads private config*.json files, never imports LedgerClient
-or LLM providers, and never renders or handles API credentials.
+or LLM providers, and never handles API keys.
 """
 
 import argparse
@@ -346,18 +346,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="127.0.0.1", help="Loopback bind host (127.0.0.1 only)")
     parser.add_argument("--port", type=int, default=8765, help="HTTP port (default 8765)")
-    parser.add_argument("--state-dir", default=".state", help="Agent state directory containing real .jsonl logs")
+    parser.add_argument("--state-dir", default=".state", help="Agent state directory containing .jsonl logs")
     args = parser.parse_args()
     if args.host not in {"127.0.0.1", "localhost", "::1"}:
-        raise ValueError("SOC Dashboard must bind strictly to a loopback host (127.0.0.1)")
+        raise ValueError("Log viewer must bind strictly to a loopback host (127.0.0.1)")
     html_path = Path(__file__).resolve().parent / "audit_dashboard.html"
     handler = make_handler(args.state_dir, html_path)
     server = ThreadingHTTPServer((args.host, args.port), handler)
-    print(f"Live SOC Audit Console at http://{args.host}:{args.port} (state={args.state_dir}, zero-key read-only)")
+    print(f"Ledger Agent Log Viewer running at http://{args.host}:{args.port} (state={args.state_dir})")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nSOC Audit Console stopped.")
+        print("\nStopped.")
     finally:
         server.server_close()
 
