@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 import requests
 
 from client import ApiError, Cooldown, LedgerClient, UncertainWrite
+from collect_evidence import summarize_account
 from config import load_config, strict_json
 from guardian import Guardian, decision
 from llm import GUARDIAN_SCHEMA, TRADER_SCHEMA, DeepSeekModel, GeminiModel, ModelError, build_model
@@ -904,6 +905,60 @@ class AuditChainTests(unittest.TestCase):
             bad = verify_chain(log_path)
             self.assertFalse(bad["valid"])
             self.assertEqual(bad["broken_seq"], 1)
+
+
+class CollectEvidenceTests(unittest.TestCase):
+    def test_summarize_account_computes_fills_return_drawdown_and_security_events(self):
+        model, theory, policy, _, _ = fixtures()
+        transactions = [
+            {"transaction_id": 1, "symbol": "BTC", "action": "BUY", "status": "EXECUTED",
+             "executed_quantity": "1", "created_at": "1970-01-01 01:00:00"},
+            {"transaction_id": 2, "symbol": "BTC", "action": "HOLD", "status": "EXECUTED",
+             "executed_quantity": "0", "created_at": "1970-01-01 01:01:00"},
+            {"transaction_id": 3, "symbol": "BTC", "action": "BUY", "status": "BLOCKED",
+             "requested_quantity": "1000", "guardian_decision": "BLOCK",
+             "guardian_reason": "transaction_ceiling", "risk_score": 100,
+             "created_at": "1970-01-01 01:05:00"},
+            {"transaction_id": 4, "symbol": "BTC", "action": "SELL", "status": "ESCALATED",
+             "requested_quantity": "1", "guardian_decision": "ESCALATE",
+             "guardian_reason": "untrusted_news_injection", "risk_score": 85,
+             "created_at": "1970-01-01 01:10:00"},
+        ]
+        guardian_logs = [
+            {"transaction_id": 1, "decision": "APPROVE"},
+            {"transaction_id": 3, "decision": "BLOCK"},
+            {"transaction_id": 4, "decision": "ESCALATE"},
+        ]
+        samples = [
+            {"time": "1970-01-01 01:00:00", "total_value": 100000.0},
+            {"time": "1970-01-01 01:05:00", "total_value": 102000.0},
+            {"time": "1970-01-01 01:10:00", "total_value": 99960.0},
+        ]
+        portfolio = {"cash_balance": "99895.83", "holdings_value": "104.17", "total_value": 101000.0}
+        summary = summarize_account(
+            "BTC", "Zayed Alnuaimi", "100061300",
+            policy=policy, portfolio=portfolio, theory=theory, model=model,
+            transactions=transactions, guardian_logs=guardian_logs,
+            portfolio_samples=samples, chains={"trader": {"valid": True}},
+        )
+        self.assertEqual(summary["executed_fills"], 1)
+        self.assertAlmostEqual(summary["portfolio_return_pct"], 1.0, places=3)
+        self.assertAlmostEqual(summary["max_drawdown_pct"], -2.0, places=3)
+        self.assertIsNotNone(summary["buy_and_hold_pct"])
+        self.assertGreater(summary["buy_and_hold_pct"], 0.0)
+        self.assertEqual(len(summary["security_events"]), 2)
+        self.assertEqual([e["transaction_id"] for e in summary["security_events"]], [3, 4])
+
+    def test_summarize_account_contains_no_secret_fields(self):
+        model, theory, policy, portfolio, _ = fixtures()
+        summary = summarize_account(
+            "ETH", "Mohamed Alromaithi", "100060448",
+            policy=policy, portfolio=portfolio, theory=theory, model=model,
+            transactions=[], guardian_logs=[],
+        )
+        dumped = json.dumps(summary)
+        for bad in ("API_KEY", "TRADER_API_KEY", "GUARDIAN_API_KEY", "DEEPSEEK_API_KEY", "GOOGLE_API_KEY"):
+            self.assertNotIn(bad, dumped)
 
 
 if __name__ == "__main__":
