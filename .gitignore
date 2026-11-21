@@ -10,3 +10,6 @@ config.*.json
 .env.*
 coverage.xml
 .coverage
+report/preview/
+report/charts/
+report/report.html
