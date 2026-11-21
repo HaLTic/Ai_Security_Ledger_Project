@@ -11,12 +11,13 @@ FINAL = {"EXECUTED", "BLOCKED", "REJECTED"}
 
 
 class Trader:
-    def __init__(self, api, model, store):
+    def __init__(self, api, model, store, *, provider_meta=None):
         self.api, self.model, self.store = api, model, store
         self.market = Market()
+        self.provider_meta = provider_meta or {}
 
     def hold(self, reason):
-        self.store.log("hold", reason=reason)
+        self.store.log("hold", reason=reason, provider_meta=self.provider_meta)
         print("HOLD:", reason)
 
     def reconcile(self):
@@ -92,7 +93,7 @@ class Trader:
             self.hold(f"{stage} failed ({type(error).__name__}); received data could not be validated. No proposal sent.")
             return
         self.store.log("trader_decision", theory_id=theory["id"], theory_version=theory["version"],
-                       signals=signals, decision=order)
+                       signals=signals, decision=order, provider_meta=self.provider_meta)
         if order["action"] == "HOLD":
             self.hold(order["reasoning"])
             return

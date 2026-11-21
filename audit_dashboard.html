@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>COSC 435 — Live AI Guardian Audit Console</title>
+<style>
+  :root {
+    --bg: #070b14;
+    --panel: #0e1525;
+    --panel-2: #131d33;
+    --border: #1e2d4a;
+    --text: #e6edf8;
+    --muted: #8ea0bf;
+    --cyan: #38bdf8;
+    --emerald: #10b981;
+    --amber: #f59e0b;
+    --crimson: #ef4444;
+    --purple: #a78bfa;
+    --mono: "Cascadia Code", "Consolas", monospace;
+    --sans: "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: radial-gradient(circle at top right, #0f1b33 0%, var(--bg) 55%);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+  }
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(14, 21, 37, 0.92);
+    backdrop-filter: blur(8px);
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+  .brand h1 { margin: 0; font-size: 1.08rem; letter-spacing: 0.4px; }
+  .brand .sub { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+  .header-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+  }
+  .badge.ok { border-color: rgba(16,185,129,0.5); color: var(--emerald); background: rgba(16,185,129,0.12); }
+  .badge.bad { border-color: rgba(239,68,68,0.6); color: var(--crimson); background: rgba(239,68,68,0.16); }
+  .badge.info { border-color: rgba(56,189,248,0.4); color: var(--cyan); }
+  .controls button {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+  .controls button.active { border-color: var(--cyan); color: var(--cyan); }
+  .container { max-width: 1460px; margin: 0 auto; padding: 18px 22px 28px; }
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(130px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .kpi {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+  }
+  .kpi .label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .kpi .val { font-size: 1.5rem; font-weight: 700; margin-top: 4px; font-family: var(--mono); }
+  .tabs { display: flex; gap: 8px; margin-bottom: 14px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+  .tab-btn {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid transparent;
+    padding: 8px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.85rem;
+  }
+  .tab-btn.active {
+    background: var(--panel-2);
+    color: var(--cyan);
+    border-color: rgba(56,189,248,0.4);
+  }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  .split { display: grid; grid-template-columns: 380px 1fr; gap: 16px; align-items: start; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+  }
+  .filter-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .filter-btn {
+    background: var(--panel-2);
+    color: var(--muted);
+    border: 1px solid var(--border);
+    padding: 4px 9px;
+    border-radius: 6px;
+    font-size: 0.73rem;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .filter-btn.active { color: var(--text); border-color: var(--cyan); }
+  .event-list { display: flex; flex-direction: column; gap: 8px; max-height: 620px; overflow-y: auto; padding-right: 4px; }
+  .event-card {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: border-color 0.15s ease;
+  }
+  .event-card:hover, .event-card.selected { border-color: var(--cyan); }
+  .event-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .event-title { font-weight: 700; font-size: 0.86rem; font-family: var(--mono); }
+  .event-sub { font-size: 0.75rem; color: var(--muted); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pill {
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    font-family: var(--mono);
+  }
+  .pill-APPROVE, .pill-EXECUTED { background: rgba(16,185,129,0.16); color: var(--emerald); }
+  .pill-MODIFY { background: rgba(56,189,248,0.16); color: var(--cyan); }
+  .pill-BLOCK, .pill-BLOCKED, .pill-REJECTED { background: rgba(239,68,68,0.18); color: var(--crimson); }
+  .pill-ESCALATE, .pill-ESCALATED { background: rgba(245,158,11,0.18); color: var(--amber); }
+  .pill-HOLD, .pill-HOLD_LOCAL, .pill-PENDING { background: rgba(167,139,250,0.18); color: var(--purple); }
+  .layers-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px; }
+  .two-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+  .layer-box {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+  }
+  .layer-box h3 { margin: 0 0 8px; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--cyan); }
+  .kv { display: flex; justify-content: space-between; gap: 8px; font-size: 0.78rem; padding: 4px 0; border-bottom: 1px solid rgba(30,45,74,0.6); }
+  .kv span:first-child { color: var(--muted); }
+  .kv span:last-child { font-family: var(--mono); text-align: right; word-break: break-word; }
+  .reason-box {
+    margin-top: 10px;
+    background: rgba(7, 11, 20, 0.7);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 11px;
+    font-size: 0.8rem;
+    line-height: 1.4;
+  }
+  .rule-chip {
+    display: inline-block;
+    margin: 4px 4px 0 0;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: rgba(239,68,68,0.16);
+    border: 1px solid rgba(239,68,68,0.4);
+    color: #fca5a5;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+  }
+  .gauge-wrap { display: flex; align-items: center; gap: 14px; margin: 8px 0 10px; }
+  .hash-bar {
+    margin-top: 12px;
+    padding: 8px 11px;
+    border-radius: 8px;
+    background: rgba(16,185,129,0.08);
+    border: 1px solid rgba(16,185,129,0.3);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: #a7f3d0;
+    word-break: break-all;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.4px; }
+  code { font-family: var(--mono); color: var(--cyan); font-size: 0.8rem; }
+  @media (max-width: 1060px) {
+    .split, .two-grid, .layers-grid { grid-template-columns: 1fr; }
+    .kpi-grid { grid-template-columns: repeat(3, 1fr); }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1>COSC 435 — Live AI Guardian Audit Console</h1>
+    <div class="sub">Read-Only Loopback Monitor (127.0.0.1) &middot; Streaming from <code>.state/</code> &middot; Zero Keys Loaded</div>
+  </div>
+  <div class="header-badges">
+    <span class="badge info" id="badge-trader-llm">Trader LLM: loading...</span>
+    <span class="badge info" id="badge-guardian-llm">Guardian LLM: loading...</span>
+    <span class="badge ok" id="badge-chain">SHA-256 Chain: checking...</span>
+    <div class="controls">
+      <button id="btn-refresh">Refresh</button>
+      <button id="btn-poll" class="active">Auto-Poll: ON</button>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+  <div class="kpi-grid">
+    <div class="kpi"><div class="label">Audited Events</div><div class="val" id="kpi-total">0</div></div>
+    <div class="kpi"><div class="label">Approved</div><div class="val" style="color:var(--emerald)" id="kpi-approve">0</div></div>
+    <div class="kpi"><div class="label">Modified (Reduced)</div><div class="val" style="color:var(--cyan)" id="kpi-modify">0</div></div>
+    <div class="kpi"><div class="label">Blocked (Layer 2)</div><div class="val" style="color:var(--crimson)" id="kpi-block">0</div></div>
+    <div class="kpi"><div class="label">Escalated (HITL)</div><div class="val" style="color:var(--amber)" id="kpi-escalate">0</div></div>
+    <div class="kpi"><div class="label">Local Holds</div><div class="val" style="color:var(--purple)" id="kpi-hold">0</div></div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="inspector">Live 3-Layer Defence Inspector</button>
+    <button class="tab-btn" data-tab="portfolio">Live Portfolio, Theories &amp; Journals</button>
+  </div>
+
+  <section class="tab-panel active" id="tab-inspector">
+    <div class="split">
+      <div class="panel">
+        <div class="filter-bar" id="filter-bar">
+          <button class="filter-btn active" data-filter="ALL">ALL</button>
+          <button class="filter-btn" data-filter="APPROVE">APPROVE</button>
+          <button class="filter-btn" data-filter="MODIFY">MODIFY</button>
+          <button class="filter-btn" data-filter="BLOCK">BLOCK</button>
+          <button class="filter-btn" data-filter="ESCALATE">ESCALATE</button>
+          <button class="filter-btn" data-filter="HOLD">HOLD</button>
+        </div>
+        <div class="event-list" id="event-list"></div>
+      </div>
+
+      <div class="panel" id="detail-panel">
+        <div style="color:var(--muted)">Select an event on the left to inspect Layer 1, Layer 2, and Layer 3 decisions.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="tab-panel" id="tab-portfolio">
+    <div class="two-grid">
+      <div class="panel">
+        <h2 style="margin:0 0 10px;font-size:1rem;">Live Portfolio Summary (<code>trader.jsonl</code>)</h2>
+        <div id="portfolio-summary">Loading...</div>
+      </div>
+      <div class="panel">
+        <h2 style="margin:0 0 10px;font-size:1rem;">Saved Theories &amp; Recovery Journals</h2>
+        <div id="journal-summary">Loading...</div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2 style="margin:0 0 10px;font-size:1rem;">Portfolio Sample Timeline (Recent 50 Cycles)</h2>
+      <table>
+        <thead>
+          <tr><th>UTC Time</th><th>Theory</th><th>Cash Balance</th><th>Holdings Value</th><th>Total Value</th><th>Open Positions</th></tr>
+        </thead>
+        <tbody id="portfolio-table-body"></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<script>
+let state = { overview: null, events: [], portfolio: null, filter: "ALL", selectedIdx: 0, poll: true };
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+}
+
+function gaugeSvg(score) {
+  const s = Math.max(0, Math.min(100, Number(score) || 0));
+  const color = s >= 75 ? "#ef4444" : s >= 40 ? "#f59e0b" : "#10b981";
+  const r = 28, c = 2 * Math.PI * r, dash = (s / 100) * c;
+  return `<svg width="74" height="74" viewBox="0 0 74 74">
+    <circle cx="37" cy="37" r="${r}" fill="none" stroke="#1e2d4a" stroke-width="7"/>
+    <circle cx="37" cy="37" r="${r}" fill="none" stroke="${color}" stroke-width="7"
+      stroke-dasharray="${dash} ${c}" stroke-linecap="round" transform="rotate(-90 37 37)"/>
+    <text x="37" y="42" text-anchor="middle" fill="#e6edf8" font-size="14" font-weight="700" font-family="monospace">${s}</text>
+  </svg>`;
+}
+
+function renderOverview() {
+  const ov = state.overview;
+  if (!ov) return;
+  document.getElementById("badge-trader-llm").textContent = `Trader LLM: ${ov.trader_provider.provider} (${ov.trader_provider.model})`;
+  document.getElementById("badge-guardian-llm").textContent = `Guardian LLM: ${ov.guardian_provider.provider} (${ov.guardian_provider.model})`;
+
+  const chainBadge = document.getElementById("badge-chain");
+  if (ov.chains.all_valid) {
+    chainBadge.className = "badge ok";
+    chainBadge.textContent = `SHA-256 Chain: VERIFIED (T:${ov.chains.trader.count} / G:${ov.chains.guardian.count})`;
+  } else {
+    chainBadge.className = "badge bad";
+    const where = !ov.chains.guardian.valid ? `guardian seq ${ov.chains.guardian.broken_seq}` : `trader seq ${ov.chains.trader.broken_seq}`;
+    chainBadge.textContent = `SHA-256 Chain: TAMPERED (${where})`;
+  }
+
+  document.getElementById("kpi-total").textContent = ov.counts.total_events;
+  document.getElementById("kpi-approve").textContent = ov.counts.verdicts.APPROVE;
+  document.getElementById("kpi-modify").textContent = ov.counts.verdicts.MODIFY;
+  document.getElementById("kpi-block").textContent = ov.counts.verdicts.BLOCK;
+  document.getElementById("kpi-escalate").textContent = ov.counts.verdicts.ESCALATE;
+  document.getElementById("kpi-hold").textContent = ov.counts.verdicts.HOLD;
+}
+
+function filteredEvents() {
+  if (state.filter === "ALL") return state.events;
+  return state.events.filter(e => (e.kind === "hold" ? "HOLD" : e.guardian_decision) === state.filter);
+}
+
+function renderEvents() {
+  const list = document.getElementById("event-list");
+  const items = filteredEvents();
+  if (!items.length) {
+    list.innerHTML = `<div style="color:var(--muted);font-size:0.84rem;padding:10px;line-height:1.5;">
+      No logged agent events in <code>.state/</code> yet.<br><br>
+      Run <code>python trader.py --once</code> or <code>python guardian.py --once</code> (or with <code>--submit</code>) to stream live events here.
+    </div>`;
+    document.getElementById("detail-panel").innerHTML = `<div style="color:var(--muted)">Waiting for real agent events in <code>.state/</code>...</div>`;
+    return;
+  }
+  if (state.selectedIdx >= items.length) state.selectedIdx = 0;
+
+  list.innerHTML = items.map((ev, i) => {
+    const tag = ev.kind === "hold" ? "HOLD" : (ev.guardian_decision || "PENDING");
+    const title = ev.kind === "hold" ? `HOLD &middot; ${escapeHtml(ev.symbol)}` : `#${ev.transaction_id} &middot; ${escapeHtml(ev.action)} ${escapeHtml(ev.quantity)} ${escapeHtml(ev.symbol)}`;
+    const sub = ev.kind === "hold" ? ev.reason : ev.guardian_reason;
+    return `<div class="event-card ${i === state.selectedIdx ? "selected" : ""}" onclick="selectEvent(${i})">
+      <div class="event-top">
+        <span class="event-title">${title}</span>
+        <span class="pill pill-${escapeHtml(tag)}">${escapeHtml(tag)}</span>
+      </div>
+      <div class="event-sub">${escapeHtml(sub)}</div>
+    </div>`;
+  }).join("");
+  renderDetail(items[state.selectedIdx]);
+}
+
+function selectEvent(idx) {
+  state.selectedIdx = idx;
+  renderEvents();
+}
+
+function renderDetail(ev) {
+  const panel = document.getElementById("detail-panel");
+  if (!ev) return;
+  const tag = ev.kind === "hold" ? "HOLD_LOCAL" : (ev.guardian_decision || "PENDING");
+  const ls = ev.layer_summary || {};
+  const rulesHtml = (ev.rules_triggered && ev.rules_triggered.length)
+    ? ev.rules_triggered.map(r => `<span class="rule-chip">${escapeHtml(r)}</span>`).join("")
+    : `<span style="color:var(--emerald);font-size:0.76rem;">No violation rules triggered</span>`;
+
+  const sigKeys = Object.keys(ev.trader_signals || {});
+  const firstSig = sigKeys.length ? ev.trader_signals[sigKeys[0]] : null;
+
+  panel.innerHTML = `
+    <div class="event-top">
+      <div>
+        <div style="font-size:1.05rem;font-weight:700;">${ev.kind === "hold" ? "Local Trader HOLD" : `Transaction #${ev.transaction_id} — ${escapeHtml(ev.action)} ${escapeHtml(ev.quantity)} ${escapeHtml(ev.symbol)}`}</div>
+        <div style="font-size:0.75rem;color:var(--muted);margin-top:2px;">Timestamp: ${escapeHtml(ev.time || "n/a")}</div>
+      </div>
+      <span class="pill pill-${escapeHtml(ev.final_status)}">FINAL: ${escapeHtml(ev.final_status)}</span>
+    </div>
+
+    <div class="layers-grid">
+      <div class="layer-box">
+        <h3>Layer 1: Trading Agent</h3>
+        <div class="kv"><span>Symbol</span><span>${escapeHtml(ev.symbol)}</span></div>
+        <div class="kv"><span>Proposed Action</span><span>${escapeHtml(ev.action)}</span></div>
+        <div class="kv"><span>Quantity</span><span>${escapeHtml(ev.quantity)}</span></div>
+        <div class="kv"><span>Signal (%)</span><span>${firstSig ? escapeHtml(Number(firstSig.signal_pct).toFixed(4)) + "%" : "n/a"}</span></div>
+        <div class="kv"><span>Max Buy Budget</span><span>${firstSig ? "$" + escapeHtml(firstSig.buy_budget) : "n/a"}</span></div>
+        <div class="reason-box"><strong>Trader Reasoning:</strong><br>${escapeHtml(ev.trader_reasoning || ev.reason || "n/a")}</div>
+      </div>
+
+      <div class="layer-box">
+        <h3>Layer 2: AI Guardian</h3>
+        <div class="gauge-wrap">
+          ${gaugeSvg(ev.risk_score)}
+          <div>
+            <div><span class="pill pill-${escapeHtml(tag)}">${escapeHtml(tag)}</span></div>
+            <div style="font-size:0.75rem;color:var(--muted);margin-top:4px;">Risk Score (0&ndash;100)</div>
+            ${ev.modified_quantity ? `<div style="font-size:0.75rem;color:var(--cyan);margin-top:2px;">Modified Qty: ${escapeHtml(ev.modified_quantity)}</div>` : ""}
+          </div>
+        </div>
+        <div class="kv"><span>Hard Rules Gate</span><span>${escapeHtml(ls.hard_rules || "n/a")}</span></div>
+        <div class="kv"><span>Theory Provenance</span><span>${escapeHtml(ls.theory_provenance || "n/a")}</span></div>
+        <div class="kv"><span>Theory Compliance</span><span>${escapeHtml(ls.theory_compliance || "n/a")}</span></div>
+        <div class="kv"><span>News Injection Scan</span><span>${escapeHtml(ls.news_injection_scan || "n/a")}</span></div>
+        <div class="kv"><span>Behavior Anomaly</span><span>${escapeHtml(ls.anomaly_check || "n/a")}</span></div>
+        <div class="kv"><span>Final Recheck</span><span>${escapeHtml(ls.final_recheck || "n/a")}</span></div>
+        <div style="margin-top:8px;">${rulesHtml}</div>
+        <div class="reason-box"><strong>Guardian Verdict:</strong><br>${escapeHtml(ev.guardian_reason || ev.reason || "n/a")}</div>
+      </div>
+
+      <div class="layer-box">
+        <h3>Layer 3: Ledger Backstop</h3>
+        <div class="kv"><span>Ledger Status</span><span>${escapeHtml(ev.final_status)}</span></div>
+        <div class="kv"><span>Requested Price</span><span>${ev.requested_price != null ? "$" + escapeHtml(ev.requested_price) : "n/a"}</span></div>
+        <div class="kv"><span>Executed Fill Qty</span><span>${ev.review_result && ev.review_result.fill ? escapeHtml(ev.review_result.fill.quantity) : "0 (not filled)"}</span></div>
+        <div class="kv"><span>Executed Total</span><span>${ev.review_result && ev.review_result.fill ? "$" + escapeHtml(ev.review_result.fill.total) : "$0.00"}</span></div>
+        <div class="hash-bar">
+          <strong>SHA-256 Log Link (seq=${escapeHtml(ev.seq ?? "-")})</strong><br>
+          prev: ${escapeHtml(ev.prev_hash || "n/a")}<br>
+          hash: ${escapeHtml(ev.record_hash || "n/a")}
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderPortfolio() {
+  const pf = state.portfolio;
+  const ov = state.overview;
+  const pDiv = document.getElementById("portfolio-summary");
+  const jDiv = document.getElementById("journal-summary");
+  const tbody = document.getElementById("portfolio-table-body");
+
+  if (!pf || !pf.sample_count) {
+    pDiv.innerHTML = `<div style="color:var(--muted);font-size:0.84rem;">No portfolio samples recorded yet in <code>trader.jsonl</code>.</div>`;
+    tbody.innerHTML = "";
+  } else {
+    const l = pf.latest;
+    const ret = pf.return_pct != null ? pf.return_pct.toFixed(3) + "%" : "n/a";
+    const dd = pf.max_drawdown_pct != null ? pf.max_drawdown_pct.toFixed(3) + "%" : "n/a";
+    pDiv.innerHTML = `
+      <div class="kv"><span>Recorded Samples</span><span>${pf.sample_count}</span></div>
+      <div class="kv"><span>Latest Total Value</span><span>$${Number(l.total_value).toFixed(2)}</span></div>
+      <div class="kv"><span>Cash Balance</span><span>$${escapeHtml(l.cash_balance)}</span></div>
+      <div class="kv"><span>Session Return</span><span>${escapeHtml(ret)}</span></div>
+      <div class="kv"><span>Max Drawdown</span><span>${escapeHtml(dd)}</span></div>`;
+
+    tbody.innerHTML = pf.samples.map(s => {
+      const pos = (s.holdings || []).map(h => `${h.quantity} ${h.symbol}`).join(", ") || "Cash only";
+      return `<tr>
+        <td style="font-family:var(--mono);font-size:0.75rem;">${escapeHtml(s.time)}</td>
+        <td style="font-family:var(--mono);">id=${escapeHtml(s.theory_id)} v${escapeHtml(s.theory_version)}</td>
+        <td style="font-family:var(--mono);">$${escapeHtml(s.cash_balance)}</td>
+        <td style="font-family:var(--mono);">$${escapeHtml(s.holdings_value ?? "0")}</td>
+        <td style="font-family:var(--mono);">$${Number(s.total_value).toFixed(2)}</td>
+        <td>${escapeHtml(pos)}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  if (ov) {
+    const tList = (ov.theories || []).map(t =>
+      `<div class="kv"><span>id=${t.id} v${t.version} (${escapeHtml(t.strategy)})</span><span>${escapeHtml((t.selected_symbols || []).join(", "))}</span></div>`
+    ).join("") || `<div style="color:var(--muted);font-size:0.8rem;">No saved theory snapshots in <code>.state/theories/</code>.</div>`;
+    const tj = ov.journals && ov.journals.trader ? `${ov.journals.trader.phase} (tx=${ov.journals.trader.transaction_id ?? "-"})` : "idle";
+    const gj = ov.journals && ov.journals.guardian ? `${ov.journals.guardian.tracked_orders} tracked, ${ov.journals.guardian.unresolved.length} unresolved` : "idle";
+    jDiv.innerHTML = `
+      <div class="kv"><span>Trader Journal (<code>trader.json</code>)</span><span>${escapeHtml(tj)}</span></div>
+      <div class="kv"><span>Guardian Journal (<code>guardian.json</code>)</span><span>${escapeHtml(gj)}</span></div>
+      <div style="margin-top:10px;font-size:0.78rem;color:var(--muted);">Immutable Theory Snapshots:</div>
+      ${tList}`;
+  }
+}
+
+async function refreshAll() {
+  const [ov, ev, pf] = await Promise.all([
+    fetch("/api/overview").then(r => r.json()),
+    fetch("/api/events").then(r => r.json()),
+    fetch("/api/portfolio").then(r => r.json()),
+  ]);
+  state.overview = ov;
+  state.events = ev.events || [];
+  state.portfolio = pf;
+  renderOverview();
+  renderEvents();
+  renderPortfolio();
+}
+
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+  });
+});
+
+document.querySelectorAll(".filter-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    state.filter = btn.dataset.filter;
+    state.selectedIdx = 0;
+    renderEvents();
+  });
+});
+
+document.getElementById("btn-refresh").addEventListener("click", refreshAll);
+document.getElementById("btn-poll").addEventListener("click", e => {
+  state.poll = !state.poll;
+  e.target.textContent = `Auto-Poll: ${state.poll ? "ON" : "OFF"}`;
+  e.target.classList.toggle("active", state.poll);
+});
+
+refreshAll();
+setInterval(() => { if (state.poll) refreshAll(); }, 4000);
+</script>
+</body>
+</html>
