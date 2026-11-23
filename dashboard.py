@@ -1,14 +1,109 @@
-"""Read-only loopback log viewer for .state/ agent journals and hash-chained logs.
+"""Loopback log viewer and agent launcher for .state/ journals and hash-chained logs.
 
-Strictly read-only: never reads private config*.json files, never imports LedgerClient
-or LLM providers, and never handles API keys.
+The viewer never reads private config*.json files, never imports LedgerClient or LLM
+providers, and never handles API keys. Start/stop runs the unchanged trader.py and
+guardian.py as child processes; each child reads its own role config, so keys stay
+out of this process. Control requests are accepted only from this page on loopback.
 """
 
 import argparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
+import signal
+import subprocess
+import sys
+import threading
+import time
 from urllib.parse import urlparse
+
+ROLES = ("trader", "guardian")
+SESSION_SECONDS = 600          # Guide 8.3: no single session longer than 10 minutes.
+CONTROL_HEADER = "X-Ledger-Dashboard"
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
+
+
+class AgentSupervisor:
+    """Starts and stops at most one bounded agent process per role."""
+
+    def __init__(self, project_dir, log_dir, python=sys.executable):
+        self.project_dir = Path(project_dir)
+        self.log_dir = Path(log_dir)
+        self.python = python
+        self.lock = threading.Lock()
+        self.procs = {}        # role -> {"proc", "submit", "started", "log"}
+
+    def _log_path(self, role):
+        return self.log_dir / f"{role}.console.log"
+
+    def _alive(self, role):
+        entry = self.procs.get(role)
+        return entry if entry and entry["proc"].poll() is None else None
+
+    def start(self, role, submit):
+        if role not in ROLES:
+            raise ValueError("unknown_role")
+        with self.lock:
+            if self._alive(role):
+                raise RuntimeError("already_running")
+            self.log_dir.mkdir(parents=True, exist_ok=True)
+            log_path = self._log_path(role)
+            command = [self.python, str(self.project_dir / f"{role}.py"),
+                       "--loop", "--duration", str(SESSION_SECONDS)]
+            if submit:
+                command.append("--submit")
+            env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+            with open(log_path, "w", encoding="utf-8") as log:
+                log.write(f"[dashboard] starting {role} ({'LIVE --submit' if submit else 'preview'}), "
+                          f"{SESSION_SECONDS}s cap\n")
+                log.flush()
+                proc = subprocess.Popen(command, cwd=self.project_dir, stdout=log,
+                                        stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=env)
+            self.procs[role] = {"proc": proc, "submit": bool(submit), "started": time.time(), "log": log_path}
+            return self.status(role)
+
+    def stop(self, role, timeout=15):
+        if role not in ROLES:
+            raise ValueError("unknown_role")
+        with self.lock:
+            entry = self._alive(role)
+            if not entry:
+                return self.status(role)
+            proc = entry["proc"]
+            # SIGINT lets runner.py finish the cycle cleanly and keep journals consistent.
+            proc.send_signal(signal.SIGINT)
+            try:
+                proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+            return self.status(role)
+
+    def stop_all(self):
+        for role in ROLES:
+            self.stop(role)
+
+    def status(self, role):
+        entry = self.procs.get(role)
+        log_path = self._log_path(role)
+        tail = []
+        if log_path.exists():
+            tail = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-40:]
+        if not entry:
+            return {"role": role, "running": False, "submit": False, "elapsed": 0,
+                    "exit_code": None, "log_tail": tail}
+        code = entry["proc"].poll()
+        return {"role": role, "running": code is None, "submit": entry["submit"],
+                "elapsed": round(time.time() - entry["started"], 1),
+                "exit_code": code, "log_tail": tail}
+
+    def all_status(self):
+        return {"session_seconds": SESSION_SECONDS, "agents": {r: self.status(r) for r in ROLES}}
 
 from config import strict_json
 from storage import verify_chain
@@ -300,7 +395,7 @@ def collect_overview(state_dir):
     }
 
 
-def make_handler(state_dir, html_path):
+def make_handler(state_dir, html_path, supervisor=None):
     state_dir = Path(state_dir)
     html_path = Path(html_path)
 
@@ -334,7 +429,54 @@ def make_handler(state_dir, html_path):
             if route == "/api/portfolio":
                 self._send_json(collect_portfolio(state_dir))
                 return
+            if route == "/api/agents" and supervisor is not None:
+                self._send_json(supervisor.all_status())
+                return
             self._send_json({"error": "not_found"}, status=404)
+
+        def _control_allowed(self):
+            # Custom header forces a CORS preflight that this server never grants, so other
+            # websites cannot trigger control calls; Host/Origin checks stop DNS rebinding.
+            host = (self.headers.get("Host") or "").rsplit(":", 1)[0]
+            if host not in LOOPBACK_HOSTS or self.headers.get(CONTROL_HEADER) != "1":
+                return False
+            origin = self.headers.get("Origin")
+            if origin is not None:
+                parsed = urlparse(origin)
+                if parsed.scheme != "http" or f"{parsed.hostname}" not in {"127.0.0.1", "localhost", "::1"}:
+                    return False
+            return True
+
+        def do_POST(self):
+            parts = urlparse(self.path).path.strip("/").split("/")
+            if supervisor is None or len(parts) != 4 or parts[:2] != ["api", "agents"] \
+                    or parts[2] not in ROLES or parts[3] not in {"start", "stop"}:
+                self._send_json({"error": "not_found"}, status=404)
+                return
+            if not self._control_allowed():
+                self._send_json({"error": "forbidden"}, status=403)
+                return
+            length = int(self.headers.get("Content-Length") or 0)
+            if length > 1024:
+                self._send_json({"error": "body_too_large"}, status=413)
+                return
+            try:
+                body = strict_json(self.rfile.read(length).decode("utf-8") or "{}")
+            except ValueError:
+                self._send_json({"error": "invalid_json"}, status=400)
+                return
+            role, action = parts[2], parts[3]
+            try:
+                if action == "start":
+                    submit = body.get("submit") if isinstance(body, dict) else None
+                    if type(submit) is not bool:
+                        self._send_json({"error": "submit_must_be_boolean"}, status=400)
+                        return
+                    self._send_json(supervisor.start(role, submit))
+                else:
+                    self._send_json(supervisor.stop(role))
+            except RuntimeError as error:
+                self._send_json({"error": str(error)}, status=409)
 
         def log_message(self, format, *args):
             return
@@ -351,14 +493,16 @@ def main():
     if args.host not in {"127.0.0.1", "localhost", "::1"}:
         raise ValueError("Log viewer must bind strictly to a loopback host (127.0.0.1)")
     html_path = Path(__file__).resolve().parent / "audit_dashboard.html"
-    handler = make_handler(args.state_dir, html_path)
+    supervisor = AgentSupervisor(html_path.parent, Path(args.state_dir))
+    handler = make_handler(args.state_dir, html_path, supervisor)
     server = ThreadingHTTPServer((args.host, args.port), handler)
-    print(f"Ledger Agent Log Viewer running at http://{args.host}:{args.port} (state={args.state_dir})")
+    print(f"Ledger Agent dashboard running at http://{args.host}:{args.port} (state={args.state_dir})")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopped.")
+        print("\nStopping any running agents...")
     finally:
+        supervisor.stop_all()
         server.server_close()
 
 

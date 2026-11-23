@@ -14,7 +14,7 @@ from client import ApiError, Cooldown, LedgerClient, UncertainWrite
 from collect_evidence import summarize_account
 from config import load_config, strict_json
 from guardian import Guardian, decision
-from llm import GUARDIAN_SCHEMA, TRADER_SCHEMA, DeepSeekModel, GeminiModel, ModelError, build_model
+from llm import GUARDIAN_SCHEMA, TRADER_SCHEMA, GeminiModel, ModelError, MuseModel, build_model, model_name
 from market import Market, price_at, sample_signal
 from storage import Store, verify_chain
 from trader import Trader
@@ -22,6 +22,10 @@ from validation import (
     bounded_quantity, cash_amount, hard_rules, names, number, policy_amount,
     quantity, scan_news_items, validate_review, validate_theory, validate_trader,
 )
+
+MUSE_URL = "https://muse.test/v1"
+MUSE_CONFIG = {"LLM_PROVIDER": "meta_muse", "META_API_KEY": "test-meta-key",
+               "META_BASE_URL": MUSE_URL, "MUSE_MODEL": "muse-spark-1.3"}
 
 
 def fixtures():
@@ -300,10 +304,10 @@ class AgentTests(unittest.TestCase):
         self.trader.cycle(submit=True)
         self.assertEqual(self.api.posts, [])
 
-    def test_model_balance_error_is_reported_in_hold(self):
-        self.trader_model.decide.side_effect = ModelError("DeepSeek HTTP 402: insufficient API balance.")
+    def test_model_provider_error_is_reported_in_hold(self):
+        self.trader_model.decide.side_effect = ModelError("Muse HTTP 429: rate limit reached; wait before trying again.")
         self.trader.cycle(submit=True)
-        self.assertIn("Model request: DeepSeek HTTP 402", self.last_hold())
+        self.assertIn("Model request: Muse HTTP 429", self.last_hold())
         self.assertEqual(self.api.posts, [])
 
     def test_invalid_model_quantity_holds(self):
@@ -326,10 +330,10 @@ class AgentTests(unittest.TestCase):
 
     def test_guardian_keeps_safe_provider_failure_explanation(self):
         self.propose()
-        self.guardian_model.decide.side_effect = ModelError("DeepSeek HTTP 402: insufficient API balance.")
+        self.guardian_model.decide.side_effect = ModelError("Muse HTTP 429: rate limit reached; wait before trying again.")
         self.guardian.cycle(submit=True)
         self.assertEqual(self.api.history[0]["status"], "ESCALATED")
-        self.assertIn("HTTP 402", self.api.posts[-1][1]["reason"])
+        self.assertIn("HTTP 429", self.api.posts[-1][1]["reason"])
         self.assertEqual(self.api.posts[-1][1]["rules_triggered"], ["model_failure"])
 
     def test_guardian_blocks_oversized_order_without_model(self):
@@ -501,31 +505,54 @@ class ConfigurationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             config = {"LEDGER_BASE_URL": "https://ledger.chanyeun.com/api/v1",
                       "TRADER_API_KEY": "test-trader", "GUARDIAN_API_KEY": "test-guardian",
-                      "DEEPSEEK_API_KEY": "test-provider", "DEEPSEEK_MODEL": "test-model"}
+                      **MUSE_CONFIG}
             path = Path(directory) / "config.json"
             path.write_text(json.dumps(config), encoding="utf-8")
             with self.assertRaises(ValueError):
                 load_config(path, "trader")
 
-    def test_deepseek_config_loads_for_both_roles(self):
+    def test_muse_config_loads_for_both_roles(self):
         for role in ("trader", "guardian"):
             with self.subTest(role=role), tempfile.TemporaryDirectory() as directory:
                 config = {"LEDGER_BASE_URL": "https://ledger.chanyeun.com/api/v1",
                           f"{role.upper()}_API_KEY": "test-ledger-key",
-                          "DEEPSEEK_API_KEY": "test-deepseek-key",
-                          "DEEPSEEK_MODEL": "deepseek-flash", "STATE_DIR": ".state"}
+                          **MUSE_CONFIG, "STATE_DIR": ".state"}
                 path = Path(directory) / "config.json"
                 path.write_text(json.dumps(config), encoding="utf-8")
                 loaded = load_config(path, role)
-                self.assertEqual(loaded["DEEPSEEK_API_KEY"], "test-deepseek-key")
+                self.assertEqual(loaded["LLM_PROVIDER"], "meta_muse")
+                self.assertEqual(loaded["META_API_KEY"], "test-meta-key")
                 self.assertEqual(loaded[f"{role.upper()}_API_KEY"], "test-ledger-key")
-                self.assertEqual(Path(loaded["STATE_DIR"]), Path(directory) / ".state")
+                self.assertEqual(Path(loaded["STATE_DIR"]), (Path(directory) / ".state").resolve())
+                self.assertIsInstance(build_model(loaded), MuseModel)
+                self.assertEqual(model_name(loaded), "muse-spark-1.3")
+
+    def test_muse_is_default_provider(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = {"LEDGER_BASE_URL": "https://ledger.chanyeun.com/api/v1",
+                      "TRADER_API_KEY": "test-ledger-key", **MUSE_CONFIG}
+            del config["LLM_PROVIDER"]
+            path = Path(directory) / "config.json"
+            path.write_text(json.dumps(config), encoding="utf-8")
+            self.assertEqual(load_config(path, "trader")["LLM_PROVIDER"], "meta_muse")
+
+    def test_muse_base_url_must_be_plain_https(self):
+        for url in ("http://muse.test/v1", "https://user:pw@muse.test/v1",
+                    "https://muse.test/v1?x=1", "https://muse.test/v1#f", "muse.test/v1"):
+            with self.subTest(url=url), tempfile.TemporaryDirectory() as directory:
+                config = {"LEDGER_BASE_URL": "https://ledger.chanyeun.com/api/v1",
+                          "TRADER_API_KEY": "test-ledger-key", **MUSE_CONFIG, "META_BASE_URL": url}
+                path = Path(directory) / "config.json"
+                path.write_text(json.dumps(config), encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    load_config(path, "trader")
 
     def test_provider_placeholder_only_permitted_for_read_checks(self):
         with tempfile.TemporaryDirectory() as directory:
             config = {"LEDGER_BASE_URL": "https://ledger.chanyeun.com/api/v1",
-                      "TRADER_API_KEY": "test-ledger-key", "DEEPSEEK_API_KEY": "PASTE_YOUR_DEEPSEEK_KEY",
-                      "DEEPSEEK_MODEL": "deepseek-flash"}
+                      "TRADER_API_KEY": "test-ledger-key", **MUSE_CONFIG,
+                      "META_API_KEY": "PASTE_YOUR_META_API_KEY",
+                      "META_BASE_URL": "PASTE_YOUR_META_BASE_URL"}
             path = Path(directory) / "config.json"
             path.write_text(json.dumps(config), encoding="utf-8")
             load_config(path, "trader", check_only=True)
@@ -533,19 +560,16 @@ class ConfigurationTests(unittest.TestCase):
                 load_config(path, "trader")
 
 
-class ProviderAdapterTests(unittest.TestCase):
+class MuseAdapterTests(unittest.TestCase):
     @staticmethod
-    def response_body(text, *, status="completed", refusal=False):
-        content = [{"type": "output_text", "text": text, "annotations": []}]
-        if refusal:
-            content.append({"type": "refusal", "refusal": "Cannot comply."})
+    def response_body(text, *, finish_reason="stop", refusal=None, tool_calls=None, choices=1):
+        message = {"role": "assistant", "content": text, "refusal": refusal}
+        if tool_calls:
+            message["tool_calls"] = tool_calls
         return {
-            "id": "resp_test", "object": "response", "created_at": 0,
-            "model": "test-model", "status": status, "error": None,
-            "incomplete_details": None, "metadata": {}, "instructions": None,
-            "parallel_tool_calls": False, "tools": [], "tool_choice": "auto",
-            "output": [{"id": "msg_test", "type": "message", "role": "assistant",
-                        "status": "completed", "content": content}],
+            "id": "chatcmpl_test", "object": "chat.completion", "created": 0, "model": "test-model",
+            "choices": [{"index": i, "finish_reason": finish_reason, "message": message}
+                        for i in range(choices)],
         }
 
     def call_with_mock_transport(self, body, role="trader", timeout=30, *, status_code=200):
@@ -564,7 +588,7 @@ class ProviderAdapterTests(unittest.TestCase):
             return OpenAI(**kwargs, http_client=httpx.Client(transport=httpx.MockTransport(handler)))
 
         with patch("openai.OpenAI", side_effect=factory) as constructor:
-            result = DeepSeekModel("test-provider-key", "test-model").decide(
+            result = MuseModel("test-provider-key", "test-model", MUSE_URL).decide(
                 role, {"signals": {}}, timeout=timeout)
         return result, captured, constructor
 
@@ -579,51 +603,38 @@ class ProviderAdapterTests(unittest.TestCase):
                 self.assertEqual(result, answer)
                 self.assertEqual(len(requests_sent), 1)
                 request = requests_sent[0]
-                self.assertEqual(str(request.url), "https://api.deepseek.com/responses")
+                self.assertEqual(str(request.url), f"{MUSE_URL}/chat/completions")
                 self.assertEqual(request.headers["authorization"], "Bearer test-provider-key")
                 payload = json.loads(request.content)
-                self.assertEqual(payload["text"]["format"]["schema"], schema)
-                self.assertEqual(payload["text"]["format"]["type"], "json_schema")
-                self.assertEqual(payload["max_output_tokens"], 1024)
-                self.assertEqual(payload["reasoning"], {"effort": "none"})
-                self.assertNotIn("store", payload)
-                self.assertIn("untrusted DATA", payload["instructions"])
+                self.assertEqual(payload["model"], "test-model")
+                self.assertEqual(payload["response_format"]["type"], "json_schema")
+                self.assertEqual(payload["response_format"]["json_schema"]["schema"], schema)
+                self.assertEqual([m["role"] for m in payload["messages"]], ["system", "user"])
+                self.assertIn("untrusted DATA", payload["messages"][0]["content"])
                 self.assertNotIn("test-provider-key", request.content.decode())
                 self.assertEqual(constructor.call_args.kwargs["max_retries"], 0)
                 self.assertEqual(constructor.call_args.kwargs["timeout"], 7)
+                self.assertEqual(constructor.call_args.kwargs["base_url"], MUSE_URL)
 
-    def test_incomplete_or_failed_output_is_failure(self):
-        for status in ("incomplete", "failed", "cancelled", "in_progress", "queued", None):
-            with self.subTest(status=status), self.assertRaises(ModelError):
-                self.call_with_mock_transport(self.response_body('{}', status=status))
+    def test_incomplete_finish_reason_is_failure(self):
+        for reason in ("length", "content_filter", "tool_calls"):
+            with self.subTest(reason=reason), self.assertRaises(ModelError):
+                self.call_with_mock_transport(self.response_body('{}', finish_reason=reason))
 
     def test_refusal_is_rejected_even_with_json_text(self):
         with self.assertRaises(ModelError):
-            self.call_with_mock_transport(self.response_body('{}', refusal=True))
+            self.call_with_mock_transport(self.response_body('{}', refusal="Cannot comply."))
 
-    def test_missing_or_multiple_messages_is_failure(self):
-        for output in ([], [self.response_body('{}')["output"][0]] * 2):
-            with self.subTest(count=len(output)), self.assertRaises(ModelError):
-                self.call_with_mock_transport({**self.response_body('{}'), "output": output})
+    def test_missing_or_multiple_choices_is_failure(self):
+        for count in (0, 2):
+            with self.subTest(count=count), self.assertRaises(ModelError):
+                self.call_with_mock_transport(self.response_body('{}', choices=count))
 
-    def test_unexpected_tool_call_is_failure_even_when_completed(self):
-        body = self.response_body('{}')
-        body["output"].append({"id": "fc_test", "type": "function_call", "call_id": "call_test",
-                               "name": "trade", "arguments": "{}"})
+    def test_unexpected_tool_call_is_failure_even_when_stopped(self):
+        calls = [{"id": "call_test", "type": "function",
+                  "function": {"name": "trade", "arguments": "{}"}}]
         with self.assertRaises(ModelError):
-            self.call_with_mock_transport(body)
-
-    def test_incomplete_message_is_failure(self):
-        body = self.response_body('{}')
-        body["output"][0]["status"] = "incomplete"
-        with self.assertRaises(ModelError):
-            self.call_with_mock_transport(body)
-
-    def test_failed_response_with_error_is_rejected(self):
-        body = self.response_body('{}')
-        body["error"] = {"code": "server_error", "message": "test"}
-        with self.assertRaises(ModelError):
-            self.call_with_mock_transport(body)
+            self.call_with_mock_transport(self.response_body('{}', tool_calls=calls))
 
     def test_malformed_json_or_non_object_is_failure(self):
         for value in ('', '{', '[]', '{"x":NaN}', '{"x":1,"x":2}'):
@@ -645,28 +656,26 @@ class ProviderAdapterTests(unittest.TestCase):
 
         with patch("openai.OpenAI", side_effect=factory):
             with self.assertRaises(ModelError) as caught:
-                DeepSeekModel("test-provider-key", "test-model").decide("trader", {})
+                MuseModel("test-provider-key", "test-model", MUSE_URL).decide("trader", {})
         self.assertEqual(len(sent), 1)
         self.assertNotIn("test-provider-key", str(caught.exception))
         self.assertIn("timed out", str(caught.exception))
 
     def test_http_errors_are_actionable_without_server_body_or_secrets(self):
-        for status in (400, 401, 402, 403, 404, 422, 429, 500, 503):
+        for status in (400, 401, 403, 404, 422, 429, 500, 503):
             with self.subTest(status=status):
                 body = {"error": {"message": "private-response-marker test-provider-key",
                                   "type": "invalid_request_error", "code": "test"}}
                 with self.assertRaises(ModelError) as caught:
                     self.call_with_mock_transport(body, status_code=status)
                 explanation = str(caught.exception)
-                self.assertIn(f"DeepSeek HTTP {status}", explanation)
+                self.assertIn(f"Muse HTTP {status}", explanation)
                 self.assertNotIn("private-response-marker", explanation)
                 self.assertNotIn("test-provider-key", explanation)
-                if status == 402:
-                    self.assertIn("insufficient API balance", explanation)
 
     def test_unknown_role_fails_before_request(self):
         with self.assertRaises(ModelError):
-            DeepSeekModel("test-provider-key", "test-model").decide("other", {})
+            MuseModel("test-provider-key", "test-model", MUSE_URL).decide("other", {})
 
 
 class GeminiConfigTests(unittest.TestCase):
@@ -687,7 +696,7 @@ class GeminiConfigTests(unittest.TestCase):
                 self.assertEqual(loaded["LLM_PROVIDER"], "gemini")
                 self.assertIsInstance(build_model(loaded), GeminiModel)
 
-    def test_gemini_config_rejects_mixed_deepseek_keys(self):
+    def test_gemini_config_rejects_mixed_muse_keys(self):
         with tempfile.TemporaryDirectory() as directory:
             config = {
                 "LEDGER_BASE_URL": "https://ledger.chanyeun.com/api/v1",
@@ -695,7 +704,7 @@ class GeminiConfigTests(unittest.TestCase):
                 "LLM_PROVIDER": "gemini",
                 "GOOGLE_API_KEY": "test-google-key",
                 "GEMINI_MODEL": "gemini-3.8-flash",
-                "DEEPSEEK_API_KEY": "mixed-key",
+                "META_API_KEY": "mixed-key",
             }
             path = Path(directory) / "config.json"
             path.write_text(json.dumps(config), encoding="utf-8")
@@ -957,8 +966,93 @@ class CollectEvidenceTests(unittest.TestCase):
             transactions=[], guardian_logs=[],
         )
         dumped = json.dumps(summary)
-        for bad in ("API_KEY", "TRADER_API_KEY", "GUARDIAN_API_KEY", "DEEPSEEK_API_KEY", "GOOGLE_API_KEY"):
+        for bad in ("API_KEY", "TRADER_API_KEY", "GUARDIAN_API_KEY", "META_API_KEY", "GOOGLE_API_KEY"):
             self.assertNotIn(bad, dumped)
+
+
+class DashboardControlTests(unittest.TestCase):
+    """Start/stop uses stand-in agent scripts; no keys, Ledger or model calls."""
+
+    FAKE_AGENT = (
+        "import sys, time\n"
+        "print('fake agent args:', ' '.join(sys.argv[1:]), flush=True)\n"
+        "try:\n"
+        "    time.sleep(60)\n"
+        "except KeyboardInterrupt:\n"
+        "    print('Stopped. Saved unresolved work will be reconciled on restart.', flush=True)\n"
+    )
+
+    def setUp(self):
+        import dashboard
+        self.dashboard = dashboard
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        for role in ("trader", "guardian"):
+            (root / f"{role}.py").write_text(self.FAKE_AGENT, encoding="utf-8")
+        self.supervisor = dashboard.AgentSupervisor(root, root / ".state")
+
+    def tearDown(self):
+        self.supervisor.stop_all()
+        self.tmp.cleanup()
+
+    def wait_for_log(self, role, text):
+        import time
+        for _ in range(50):
+            if any(text in line for line in self.supervisor.status(role)["log_tail"]):
+                return
+            time.sleep(0.1)
+        self.fail(f"{text!r} not in {role} log")
+
+    def test_preview_start_is_bounded_and_has_no_submit(self):
+        status = self.supervisor.start("guardian", submit=False)
+        self.assertTrue(status["running"])
+        self.wait_for_log("guardian", "fake agent args")
+        args = next(l for l in self.supervisor.status("guardian")["log_tail"] if "fake agent args" in l)
+        self.assertIn("--loop --duration 600", args)
+        self.assertNotIn("--submit", args)
+
+    def test_live_start_adds_submit_and_one_process_per_role(self):
+        self.supervisor.start("trader", submit=True)
+        self.wait_for_log("trader", "fake agent args")
+        self.assertIn("--submit", "\n".join(self.supervisor.status("trader")["log_tail"]))
+        with self.assertRaises(RuntimeError):
+            self.supervisor.start("trader", submit=True)
+
+    def test_stop_sends_interrupt_for_clean_shutdown(self):
+        self.supervisor.start("trader", submit=False)
+        self.wait_for_log("trader", "fake agent args")
+        status = self.supervisor.stop("trader")
+        self.assertFalse(status["running"])
+        self.assertTrue(any("Stopped." in line for line in status["log_tail"]))
+
+    def test_unknown_role_rejected(self):
+        with self.assertRaises(ValueError):
+            self.supervisor.start("full", submit=False)
+
+    def control_request(self, headers):
+        import http.client
+        import threading
+        from http.server import ThreadingHTTPServer
+        handler = self.dashboard.make_handler(Path(self.tmp.name) / ".state", Path(self.tmp.name) / "x.html",
+                                              self.supervisor)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+            conn.request("POST", "/api/agents/guardian/start", body=json.dumps({"submit": False}),
+                         headers={"Content-Type": "application/json", **headers})
+            return conn.getresponse().status
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_control_requires_page_header_and_local_origin(self):
+        self.assertEqual(self.control_request({}), 403)
+        self.assertEqual(self.control_request({"X-Ledger-Dashboard": "1", "Origin": "https://evil.example"}), 403)
+        self.assertFalse(self.supervisor.status("guardian")["running"])
+        self.assertEqual(self.control_request({"X-Ledger-Dashboard": "1"}), 200)
+        self.assertTrue(self.supervisor.status("guardian")["running"])
 
 
 if __name__ == "__main__":
