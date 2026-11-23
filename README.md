@@ -2,7 +2,7 @@
 
 Two Python programs for the course's simulated Ledger platform (`https://ledger.chanyeun.com`): a **Trading Agent** that reads market quotes and submits trade proposals, and an independent **AI Guardian** that verifies each pending order before execution.
 
-Both agents support **DeepSeek** (`deepseek-flash` via the Responses API) and **Google Gemini** (`gemini-3.8-flash` via the Interactions API), with deterministic local validation on every input and output. Preview is the default; pass `--submit` to send proposals or reviews to Ledger.
+Both agents use **Meta Muse Spark** (`muse-spark-1.3` via the OpenAI-compatible Chat Completions API) by default, with **Google Gemini** (`gemini-3.8-flash` via the Interactions API) as an alternative provider. Every model input and output passes deterministic local validation. Preview is the default; pass `--submit` to send proposals or reviews to Ledger.
 
 ## 1. Account & Team Setup
 
@@ -19,10 +19,10 @@ Both agents support **DeepSeek** (`deepseek-flash` via the Responses API) and **
 ```
 
 Create private local configs (ignored by Git via `.gitignore`):
-- **DeepSeek (`deepseek-flash`):** copy `config.trader.example.json` to `config.trader.json` and `config.guardian.example.json` to `config.guardian.json`.
+- **Meta Muse Spark (default):** copy `config.trader.example.json` to `config.trader.json` and `config.guardian.example.json` to `config.guardian.json`, then fill in `META_API_KEY`, `META_BASE_URL` (your Meta Model API endpoint, HTTPS only) and `MUSE_MODEL`.
 - **Gemini (`gemini-3.8-flash`):** copy `config.trader.gemini.example.json` to `config.trader.json` and/or `config.guardian.gemini.example.json` to `config.guardian.json`.
 
-You can use the same provider for both agents or pair them (for example, DeepSeek for Trader and Gemini for Guardian). Keep the Ledger `trader` and `guardian` keys strictly in their own files, and keep `STATE_DIR` set to `.state` so the Guardian can read exact saved theory snapshots. Configuration is read only from these JSON files; environment variables are not used.
+You can use the same provider for both agents or pair them (for example, Muse for the Trader and Gemini for the Guardian). Keep the Ledger `trader` and `guardian` keys strictly in their own files, and keep `STATE_DIR` set to `.state` so the Guardian can read exact saved theory snapshots. Configuration is read only from these JSON files; environment variables are not used.
 
 ## 3. Running & Testing
 
@@ -48,9 +48,13 @@ Minimum loop intervals are 60s for `trader.py` and 15s for `guardian.py` (with r
 
 ## 4. Log Viewer, Recovery & Evidence Export
 
-- **Local log viewer (`http://127.0.0.1:8765`):** reads `.state/` without touching any API keys:
+- **Local dashboard (`http://127.0.0.1:8765`):** shows the `.state/` logs and has **Start preview / Start LIVE / Stop** buttons for each agent. Each button runs the unchanged `guardian.py` or `trader.py` as a separate process (`--loop --duration 600`, plus `--submit` for LIVE after a confirmation), so the dashboard itself never reads API keys. Start the Guardian first. Control requests are accepted only from this page on loopback. Stopping the dashboard also stops any running agent.
   ```powershell
   .\.venv\Scripts\python.exe dashboard.py --state-dir .state --port 8765
+  ```
+  On macOS/Linux, run it in the foreground (it keeps the terminal until you press Ctrl+C, which also stops any agents it started):
+  ```bash
+  python dashboard.py --state-dir .state --port 8765
   ```
 - **Uncertain write recovery:** if a `POST` response is lost (`UncertainWrite`), inspect Transactions on Ledger and resolve explicitly:
   ```powershell
@@ -70,7 +74,7 @@ Minimum loop intervals are 60s for `trader.py` and 15s for `guardian.py` (with r
 - `client.py`: Role-scoped HTTPS client (`X-Api-Key`, no redirects, 1.1s pacing, `429`/`503` cooldowns, `UncertainWrite` on ambiguous `POST`s).
 - `market.py` & `verify_market.py`: Appendix A power-law replay (`price_at`), 61-sample signal calculation, and single-refresh check on quote mismatch.
 - `validation.py`: `Decimal` money/rounding helpers (`cash_amount`, `policy_amount`, `bounded_quantity`), schema validation, hard rules, and `scan_news_items` prompt-injection checks.
-- `llm.py`: Strict JSON-schema wrappers for DeepSeek (`client.responses.create`) and Gemini (`client.interactions.create`).
+- `llm.py`: Strict JSON-schema wrappers for Meta Muse Spark (`client.chat.completions.create` with `response_format` `json_schema`, `finish_reason` checked) and Gemini (`client.interactions.create`).
 - `trader.py` & `guardian.py`: Independent agent loops, theory snapshot provenance checks, `<= 120s` proposal-tick drift tolerance, behavioral anomaly checks (`3x` median size & `rapid_direction_flip`), and pre-submit final recheck.
 - `storage.py`: Atomic JSON journals, per-role file locks, and SHA-256 hash-chained `.jsonl` logs (`verify_chain()`).
 
@@ -78,4 +82,4 @@ Minimum loop intervals are 60s for `trader.py` and 15s for `guardian.py` (with r
 
 Design and API contracts follow the COSC 435 Project Description and Student Development Guide (Sections 6–9, Appendices A–D).
 
-AI tools used: OpenAI Codex generated the initial repository scaffold and baseline unit tests on 2026-11-07. Antigravity assisted on 2026-11-20–21 with adding the Google Gemini Interactions API adapter, untrusted news injection scanning, proposal-tick drift tolerance, `rapid_direction_flip` anomaly checks, SHA-256 log chaining, the local log viewer (`dashboard.py`), `collect_evidence.py`, and report/slide generation scripts.
+AI tools used: OpenAI Codex generated the initial repository scaffold and baseline unit tests on 2026-11-07. Antigravity assisted on 2026-11-20–21 with adding the Google Gemini Interactions API adapter, untrusted news injection scanning, proposal-tick drift tolerance, `rapid_direction_flip` anomaly checks, SHA-256 log chaining, the local log viewer (`dashboard.py`), `collect_evidence.py`, and report/slide generation scripts. Claude Code (Anthropic) assisted on 2026-11-23 with switching the default model provider from DeepSeek to Meta Muse Spark (`MuseModel` in `llm.py`, `meta_muse` config validation, and tests) and with adding the dashboard's start/stop agent controls.

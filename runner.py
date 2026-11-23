@@ -6,7 +6,7 @@ import time
 
 from client import ApiError, Cooldown, LedgerClient, SessionExpired, UncertainWrite
 from config import load_config
-from llm import build_model
+from llm import build_model, model_name
 from storage import Store
 
 
@@ -47,7 +47,7 @@ def run(role):
         model = build_model(config)
         provider_meta = {
             "provider": config["LLM_PROVIDER"],
-            "model": config["GEMINI_MODEL"] if config["LLM_PROVIDER"] == "gemini" else config["DEEPSEEK_MODEL"],
+            "model": model_name(config),
         }
         if role == "trader":
             from trader import Trader

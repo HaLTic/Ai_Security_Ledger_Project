@@ -1,4 +1,4 @@
-"""DeepSeek Responses adapter with JSON-schema output and independent local gates."""
+"""Meta Muse Spark and Gemini adapters with JSON-schema output and independent local gates."""
 
 import json
 
@@ -55,9 +55,11 @@ class ModelError(RuntimeError):
     pass
 
 
-class DeepSeekModel:
-    def __init__(self, key, model):
-        self.key, self.model = key, model
+class MuseModel:
+    """Meta Muse Spark through its OpenAI-compatible Chat Completions endpoint."""
+
+    def __init__(self, key, model, base_url):
+        self.key, self.model, self.base_url = key, model, base_url
 
     def decide(self, role, payload, *, timeout=30):
         if role not in {"trader", "guardian"}:
@@ -69,32 +71,32 @@ class DeepSeekModel:
             from openai import OpenAI
 
             with OpenAI(
-                api_key=self.key,
-                base_url="https://api.deepseek.com",
+                api_key=self.key, base_url=self.base_url,
                 timeout=max(0.1, timeout), max_retries=0,
             ) as client:
-                reply = client.responses.create(
+                reply = client.chat.completions.create(
                     model=self.model,
-                    instructions=prompt,
-                    input=[{"role": "user", "content": json.dumps(payload, allow_nan=False)}],
-                    text={"format": {"type": "json_schema", "name": f"{role}_decision", "schema": schema}},
-                    reasoning={"effort": "none"}, max_output_tokens=1024,
+                    messages=[
+                        {"role": "system", "content": prompt},
+                        {"role": "user", "content": json.dumps(payload, allow_nan=False)},
+                    ],
+                    # Same call shape as the course guide (Appendix C.3, Meta Muse Spark).
+                    response_format={"type": "json_schema", "json_schema": {
+                        "name": f"{role}_decision", "schema": schema}},
                 )
-            if reply.status != "completed" or reply.error is not None:
-                raise ModelError("DeepSeek returned an incomplete or failed response.")
-            messages = [item for item in reply.output if item.type == "message"]
-            if len(messages) != 1 or any(item.type not in {"message", "reasoning"} for item in reply.output):
-                raise ModelError("DeepSeek must return exactly one decision message without tool calls.")
-            message = messages[0]
-            if message.status != "completed" or message.role != "assistant":
-                raise ModelError("DeepSeek returned an incomplete decision message.")
-            if any(part.type != "output_text" for part in message.content):
-                raise ModelError("DeepSeek refused the request or returned unexpected content.")
-            if not reply.output_text or not reply.output_text.strip():
-                raise ModelError("DeepSeek returned no JSON decision.")
-            answer = strict_json(reply.output_text)
+            if len(reply.choices) != 1:
+                raise ModelError("Muse must return exactly one choice.")
+            choice = reply.choices[0]
+            message = choice.message
+            if choice.finish_reason != "stop":
+                raise ModelError("Muse returned an incomplete response.")
+            if getattr(message, "refusal", None) or getattr(message, "tool_calls", None):
+                raise ModelError("Muse refused the request or returned unexpected content.")
+            if not message.content or not message.content.strip():
+                raise ModelError("Muse returned no JSON decision.")
+            answer = strict_json(message.content)
             if not isinstance(answer, dict):
-                raise ModelError("DeepSeek must return a JSON object.")
+                raise ModelError("Muse must return a JSON object.")
             # Exact fields and business constraints are checked by validation.py.
             return answer
         except ModelError:
@@ -104,23 +106,21 @@ class DeepSeekModel:
             status = getattr(error, "status_code", None)
             if type(status) is int and 100 <= status <= 599:
                 explanation = {
-                    400: "request or JSON schema rejected; check the configured model and API compatibility",
-                    401: "API key rejected; check DEEPSEEK_API_KEY in the private config",
-                    402: "insufficient API balance; add funds to your DeepSeek API account",
-                    403: "access denied; check your DeepSeek account permissions",
-                    404: "model or endpoint not found; check DEEPSEEK_MODEL",
-                    422: "request parameters rejected; check the configured model and API compatibility",
+                    400: "request or JSON schema rejected; check MUSE_MODEL and structured-output support",
+                    401: "API key rejected; check META_API_KEY in the private config",
+                    403: "access denied; check your Meta Model API permissions",
+                    404: "model or endpoint not found; check MUSE_MODEL and META_BASE_URL",
                     429: "rate limit reached; wait before trying again",
                     500: "server error; try again later",
                     503: "service overloaded; try again later",
                 }.get(status, "model request failed")
-                message = f"DeepSeek HTTP {status}: {explanation}."
+                message = f"Muse HTTP {status}: {explanation}."
             elif type(error).__name__ == "APITimeoutError":
-                message = "DeepSeek request timed out; try again later."
+                message = "Muse request timed out; try again later."
             elif isinstance(error, (ValueError, KeyError, TypeError, AttributeError)):
-                message = "DeepSeek returned malformed JSON or an unexpected response shape."
+                message = "Muse returned malformed JSON or an unexpected response shape."
             else:
-                message = "DeepSeek connection or SDK failed; check the network and installed dependencies."
+                message = "Muse connection or SDK failed; check the network and installed dependencies."
             raise ModelError(message) from None
 
 
@@ -192,7 +192,14 @@ class GeminiModel:
 
 
 def build_model(config):
-    provider = config.get("LLM_PROVIDER", "deepseek")
+    provider = config["LLM_PROVIDER"]
     if provider == "gemini":
         return GeminiModel(config["GOOGLE_API_KEY"], config["GEMINI_MODEL"])
-    return DeepSeekModel(config["DEEPSEEK_API_KEY"], config["DEEPSEEK_MODEL"])
+    if provider == "meta_muse":
+        return MuseModel(config["META_API_KEY"], config["MUSE_MODEL"], config["META_BASE_URL"])
+    raise ModelError("Unsupported LLM_PROVIDER")
+
+
+def model_name(config):
+    """Configured model id for logs (never a key)."""
+    return config["GEMINI_MODEL"] if config["LLM_PROVIDER"] == "gemini" else config["MUSE_MODEL"]

@@ -100,8 +100,30 @@
   th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
   th { color: var(--muted); font-size: 0.73rem; text-transform: uppercase; }
   code { font-family: var(--mono); font-size: 0.8rem; background: #eef2f7; padding: 1px 4px; border-radius: 3px; }
+  .agent-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+  .agent-card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+  .agent-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .agent-head h2 { margin: 0; font-size: 0.95rem; color: var(--navy); }
+  .agent-head .step { color: var(--muted); font-weight: 600; font-size: 0.75rem; margin-left: 6px; }
+  .agent-status { font-family: var(--mono); font-size: 0.75rem; padding: 3px 8px; border-radius: 5px; background: #e2e8f0; color: #334155; }
+  .agent-status.preview { background: #dbeafe; color: #1e40af; }
+  .agent-status.live { background: #fee2e2; color: #991b1b; }
+  .agent-actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+  .agent-actions button {
+    border: 1px solid var(--border); background: var(--panel-2); color: var(--navy);
+    padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.8rem;
+  }
+  .agent-actions button.live { background: #b91c1c; border-color: #991b1b; color: #ffffff; }
+  .agent-actions button.stop { background: #0f2942; border-color: #0f2942; color: #ffffff; }
+  .agent-actions button:disabled { opacity: 0.45; cursor: not-allowed; }
+  .agent-console {
+    margin: 10px 0 0; height: 170px; overflow-y: auto; background: #0f172a; color: #e2e8f0;
+    border-radius: 6px; padding: 8px 10px; font-family: var(--mono); font-size: 0.72rem; line-height: 1.45;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .agent-error { color: var(--red); font-size: 0.75rem; margin-top: 6px; min-height: 1em; }
   @media (max-width: 1060px) {
-    .split, .two-grid, .layers-grid { grid-template-columns: 1fr; }
+    .split, .two-grid, .layers-grid, .agent-grid { grid-template-columns: 1fr; }
     .kpi-grid { grid-template-columns: repeat(3, 1fr); }
   }
 </style>
@@ -110,7 +132,7 @@
 <header>
   <div class="brand">
     <h1>COSC 435 — Trading Agent &amp; AI Guardian Log Viewer</h1>
-    <div class="sub">Read-only local view of <code>.state/</code> on 127.0.0.1 (no API keys loaded)</div>
+    <div class="sub">Local view of <code>.state/</code> on 127.0.0.1. Agents run as separate processes; this page never loads API keys.</div>
   </div>
   <div class="header-badges">
     <span class="badge" id="badge-trader-llm">Trader: loading...</span>
@@ -124,6 +146,34 @@
 </header>
 
 <div class="container">
+  <div class="agent-grid">
+    <div class="agent-card" id="agent-guardian">
+      <div class="agent-head">
+        <h2>AI Guardian<span class="step">start first</span></h2>
+        <span class="agent-status" data-role="guardian">stopped</span>
+      </div>
+      <div class="agent-actions">
+        <button data-role="guardian" data-act="preview">Start preview</button>
+        <button data-role="guardian" data-act="live" class="live">Start LIVE</button>
+        <button data-role="guardian" data-act="stop" class="stop">Stop</button>
+      </div>
+      <div class="agent-error" data-role="guardian"></div>
+      <pre class="agent-console" data-role="guardian">No output yet.</pre>
+    </div>
+    <div class="agent-card" id="agent-trader">
+      <div class="agent-head">
+        <h2>Trading Agent<span class="step">start second</span></h2>
+        <span class="agent-status" data-role="trader">stopped</span>
+      </div>
+      <div class="agent-actions">
+        <button data-role="trader" data-act="preview">Start preview</button>
+        <button data-role="trader" data-act="live" class="live">Start LIVE</button>
+        <button data-role="trader" data-act="stop" class="stop">Stop</button>
+      </div>
+      <div class="agent-error" data-role="trader"></div>
+      <pre class="agent-console" data-role="trader">No output yet.</pre>
+    </div>
+  </div>
   <div class="kpi-grid">
     <div class="kpi"><div class="label">Events</div><div class="val" id="kpi-total">0</div></div>
     <div class="kpi"><div class="label">Approved</div><div class="val" style="color:var(--green)" id="kpi-approve">0</div></div>
@@ -363,6 +413,54 @@ document.getElementById("btn-poll").addEventListener("click", e => {
 
 refreshAll();
 setInterval(() => { if (state.poll) refreshAll(); }, 4000);
+
+const CONTROL_HEADERS = {"Content-Type": "application/json", "X-Ledger-Dashboard": "1"};
+const agentState = {};
+
+function fmtTime(sec) {
+  const s = Math.max(0, Math.round(sec)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function renderAgents(data) {
+  for (const [role, a] of Object.entries(data.agents)) {
+    agentState[role] = a;
+    const badge = document.querySelector(`.agent-status[data-role="${role}"]`);
+    badge.className = "agent-status" + (a.running ? (a.submit ? " live" : " preview") : "");
+    badge.textContent = a.running
+      ? `${a.submit ? "LIVE" : "preview"} · ${fmtTime(a.elapsed)} / ${fmtTime(data.session_seconds)}`
+      : (a.exit_code === null ? "stopped" : `stopped (exit ${a.exit_code})`);
+    document.querySelectorAll(`.agent-actions button[data-role="${role}"]`).forEach(b => {
+      b.disabled = b.dataset.act === "stop" ? !a.running : a.running;
+    });
+    const con = document.querySelector(`.agent-console[data-role="${role}"]`);
+    const atBottom = con.scrollTop + con.clientHeight >= con.scrollHeight - 8;
+    con.textContent = a.log_tail.length ? a.log_tail.join("\n") : "No output yet.";
+    if (atBottom) con.scrollTop = con.scrollHeight;
+  }
+}
+
+async function refreshAgents() {
+  try { renderAgents(await fetch("/api/agents").then(r => r.json())); } catch (e) { /* server stopped */ }
+}
+
+async function agentAction(role, act) {
+  const err = document.querySelector(`.agent-error[data-role="${role}"]`);
+  err.textContent = "";
+  if (act === "live" && !confirm(`Start the ${role} in LIVE mode? It will send real ${role === "trader" ? "proposals" : "reviews"} to Ledger for up to 10 minutes.`)) return;
+  const path = act === "stop" ? "stop" : "start";
+  const body = act === "stop" ? {} : {submit: act === "live"};
+  document.querySelectorAll(`.agent-actions button[data-role="${role}"]`).forEach(b => b.disabled = true);
+  try {
+    const r = await fetch(`/api/agents/${role}/${path}`, {method: "POST", headers: CONTROL_HEADERS, body: JSON.stringify(body)});
+    if (!r.ok) err.textContent = `Request failed: ${(await r.json()).error || r.status}`;
+  } catch (e) { err.textContent = "Dashboard server not reachable."; }
+  refreshAgents();
+}
+
+document.querySelectorAll(".agent-actions button").forEach(b =>
+  b.addEventListener("click", () => agentAction(b.dataset.role, b.dataset.act)));
+refreshAgents();
+setInterval(refreshAgents, 2000);
 </script>
 </body>
 </html>
