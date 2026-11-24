@@ -30,10 +30,9 @@ You can use the same provider for both agents or pair them (for example, Muse fo
 # Unit tests (mocked HTTP/LLM, no live keys required)
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 
-# Read-only Ledger credential and market replay checks
+# Read-only Ledger credential checks
 .\.venv\Scripts\python.exe trader.py --check
 .\.venv\Scripts\python.exe guardian.py --check
-.\.venv\Scripts\python.exe verify_market.py
 
 # Single-cycle preview (no writes to Ledger)
 .\.venv\Scripts\python.exe trader.py --once
@@ -72,7 +71,7 @@ Minimum loop intervals are 60s for `trader.py` and 15s for `guardian.py` (with r
 ## 5. Module Overview
 
 - `client.py`: Role-scoped HTTPS client (`X-Api-Key`, no redirects, 1.1s pacing, `429`/`503` cooldowns, `UncertainWrite` on ambiguous `POST`s).
-- `market.py` & `verify_market.py`: Appendix A power-law replay (`price_at`), 61-sample signal calculation, and single-refresh check on quote mismatch.
+- `market.py`: Appendix A power-law replay (`price_at`), 61-sample signal calculation, and single-refresh check on quote mismatch.
 - `validation.py`: `Decimal` money/rounding helpers (`cash_amount`, `policy_amount`, `bounded_quantity`), schema validation, hard rules, and `scan_news_items` prompt-injection checks.
 - `llm.py`: Strict JSON-schema wrappers for Meta Muse Spark (`client.chat.completions.create` with `response_format` `json_schema`, `finish_reason` checked) and Gemini (`client.interactions.create`).
 - `trader.py` & `guardian.py`: Independent agent loops, theory snapshot provenance checks, `<= 120s` proposal-tick drift tolerance, behavioral anomaly checks (`3x` median size & `rapid_direction_flip`), and pre-submit final recheck.
