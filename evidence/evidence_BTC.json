@@ -1,0 +1,93 @@
+{
+  "coin": "BTC",
+  "member": "Zayed Alnuaimi",
+  "student_id": "100061300",
+  "executed_fills": 2,
+  "sample_count": 17,
+  "start_value": 100000.0,
+  "end_value": 100002.35,
+  "portfolio_return_pct": 0.0023,
+  "max_drawdown_pct": -0.0258,
+  "buy_and_hold_pct": -1.4327,
+  "policy": {
+    "allowed_symbols": [
+      "BTC"
+    ],
+    "restricted_actions": [
+      "WITHDRAW"
+    ],
+    "max_transaction_amount": 10000,
+    "escalation_threshold": 2000,
+    "max_trades_per_hour": 10,
+    "max_trades_per_day": 50
+  },
+  "session_window": {
+    "start": "2026-11-24T18:41:37.677576+00:00",
+    "end": "2026-11-24 19:16:30",
+    "theory_id": 77,
+    "theory_version": 4,
+    "strategy": "mean_reversion"
+  },
+  "verdicts": {
+    "APPROVE": 0,
+    "MODIFY": 0,
+    "BLOCK": 3,
+    "ESCALATE": 2
+  },
+  "outcomes": {
+    "EXECUTED": 2,
+    "BLOCKED": 3,
+    "ESCALATED": 0,
+    "REJECTED": 0,
+    "PENDING": 0
+  },
+  "security_events": [
+    {
+      "transaction_id": 502,
+      "symbol": "BTC",
+      "action": "BUY",
+      "requested_quantity": 0.0163051469,
+      "status": "BLOCKED",
+      "guardian_decision": "BLOCK",
+      "guardian_reason": "Final hard-rule recheck failed: per_buy_fraction",
+      "risk_score": 100,
+      "created_at": "2026-11-24 19:09:16"
+    },
+    {
+      "transaction_id": 500,
+      "symbol": "BTC",
+      "action": "BUY",
+      "requested_quantity": 0.016341212,
+      "status": "BLOCKED",
+      "guardian_decision": "BLOCK",
+      "guardian_reason": "Order violates active submitted theory: Order exceeds permitted per-buy budget",
+      "risk_score": 90,
+      "created_at": "2026-11-24 19:08:07"
+    },
+    {
+      "transaction_id": 499,
+      "symbol": "BTC",
+      "action": "BUY",
+      "requested_quantity": 0.0163453219,
+      "status": "BLOCKED",
+      "guardian_decision": "BLOCK",
+      "guardian_reason": "Order violates active submitted theory: Order exceeds permitted per-buy budget",
+      "risk_score": 90,
+      "created_at": "2026-11-24 19:06:56"
+    }
+  ],
+  "chains": {
+    "trader": {
+      "valid": true,
+      "count": 77,
+      "broken_seq": null,
+      "reason": "SHA-256 chain verified"
+    },
+    "guardian": {
+      "valid": true,
+      "count": 15,
+      "broken_seq": null,
+      "reason": "SHA-256 chain verified"
+    }
+  }
+}
