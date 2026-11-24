@@ -48,13 +48,14 @@ Minimum loop intervals are 60s for `trader.py` and 15s for `guardian.py` (with r
 ## 4. Log Viewer, Recovery & Evidence Export
 
 - **Local dashboard (`http://127.0.0.1:8765`):** shows the `.state/` logs and has **Start preview / Start LIVE / Stop** buttons for each agent. Each button runs the unchanged `guardian.py` or `trader.py` as a separate process (`--loop --duration 600`, plus `--submit` for LIVE after a confirmation), so the dashboard itself never reads API keys. Start the Guardian first. Control requests are accepted only from this page on loopback. Stopping the dashboard also stops any running agent.
-  ```powershell
-  .\.venv\Scripts\python.exe dashboard.py --state-dir .state --port 8765
-  ```
-  On macOS/Linux, run it in the foreground (it keeps the terminal until you press Ctrl+C, which also stops any agents it started):
+  Start it with the launcher script. It opens the dashboard in your browser and keeps the terminal open (the URL printed there is clickable); pressing Ctrl+C **or closing the terminal window** stops the dashboard and any agents it started, which shut down cleanly and save unresolved work.
   ```bash
-  python dashboard.py --state-dir .state --port 8765
+  ./run_dashboard.sh              # macOS / Linux
   ```
+  ```powershell
+  run_dashboard.bat               # Windows
+  ```
+  Pass `--port 8770` to either script to use another port. The scripts prefer `.venv` if it exists and otherwise use the system Python.
 - **Uncertain write recovery:** if a `POST` response is lost (`UncertainWrite`), inspect Transactions on Ledger and resolve explicitly:
   ```powershell
   .\.venv\Scripts\python.exe trader.py --resolve-id 42

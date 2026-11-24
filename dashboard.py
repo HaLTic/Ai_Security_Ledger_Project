@@ -17,6 +17,7 @@ import sys
 import threading
 import time
 from urllib.parse import urlparse
+import webbrowser
 
 ROLES = ("trader", "guardian")
 SESSION_SECONDS = 600          # Guide 8.3: no single session longer than 10 minutes.
@@ -58,8 +59,11 @@ class AgentSupervisor:
                 log.write(f"[dashboard] starting {role} ({'LIVE --submit' if submit else 'preview'}), "
                           f"{SESSION_SECONDS}s cap\n")
                 log.flush()
+                # Own session on POSIX: a closing terminal's hangup reaches only the dashboard,
+                # which then stops each agent with SIGINT so it can finish its cycle cleanly.
                 proc = subprocess.Popen(command, cwd=self.project_dir, stdout=log,
-                                        stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=env)
+                                        stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=env,
+                                        start_new_session=(os.name != "nt"))
             self.procs[role] = {"proc": proc, "submit": bool(submit), "started": time.time(), "log": log_path}
             return self.status(role)
 
@@ -487,11 +491,24 @@ def make_handler(state_dir, html_path, supervisor=None):
     return AuditHandler
 
 
+def terminal_link(url):
+    """URL wrapped in an OSC 8 hyperlink where the terminal supports it; plain text otherwise.
+
+    The visible text is the URL itself, so terminals that only auto-detect links still work.
+    """
+    if not sys.stdout.isatty() or os.environ.get("TERM") == "dumb":
+        return url
+    if os.name == "nt" and not os.environ.get("WT_SESSION"):
+        return url  # classic Windows console prints escape codes literally
+    return f"\033]8;;{url}\033\\{url}\033]8;;\033\\"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="127.0.0.1", help="Loopback bind host (127.0.0.1 only)")
     parser.add_argument("--port", type=int, default=8765, help="HTTP port (default 8765)")
     parser.add_argument("--state-dir", default=".state", help="Agent state directory containing .jsonl logs")
+    parser.add_argument("--open", action="store_true", help="Open the dashboard in the default web browser")
     args = parser.parse_args()
     if args.host not in {"127.0.0.1", "localhost", "::1"}:
         raise ValueError("Log viewer must bind strictly to a loopback host (127.0.0.1)")
@@ -499,11 +516,31 @@ def main():
     supervisor = AgentSupervisor(html_path.parent, Path(args.state_dir))
     handler = make_handler(args.state_dir, html_path, supervisor)
     server = ThreadingHTTPServer((args.host, args.port), handler)
-    print(f"Ledger Agent dashboard running at http://{args.host}:{args.port} (state={args.state_dir})")
+    url = f"http://{args.host}:{args.port}"
+    print(f"Ledger Agent dashboard running (state={args.state_dir}):")
+    print(f"  {terminal_link(url)}")
+    print("Press Ctrl+C or close this terminal window to stop the dashboard and its agents.")
+
+    def _shutdown(signum, frame):
+        raise KeyboardInterrupt
+
+    # Closing the terminal (SIGHUP), kill/logout (SIGTERM) and Windows console close (SIGBREAK)
+    # all take the same clean path as Ctrl+C.
+    # Re-arming SIGINT also matters when launched from a background shell job, where SIGINT is
+    # inherited as ignored and agents would otherwise ignore the dashboard's Stop request.
+    for name in ("SIGINT", "SIGHUP", "SIGTERM", "SIGBREAK"):
+        if hasattr(signal, name):
+            signal.signal(getattr(signal, name), _shutdown)
+    if args.open:
+        # The socket is already listening, so the page loads as soon as the browser asks.
+        threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping any running agents...")
+        try:
+            print("\nStopping any running agents...")
+        except OSError:
+            pass  # terminal already closed
     finally:
         supervisor.stop_all()
         server.server_close()
