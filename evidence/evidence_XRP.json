@@ -1,0 +1,109 @@
+{
+  "coin": "XRP",
+  "member": "Abdulla Alshehhi",
+  "student_id": "100061146",
+  "executed_fills": 1,
+  "sample_count": 13,
+  "start_value": 100000.0,
+  "end_value": 100476.2,
+  "portfolio_return_pct": 0.4762,
+  "max_drawdown_pct": -0.158,
+  "buy_and_hold_pct": 6.2521,
+  "policy": {
+    "allowed_symbols": [
+      "BTC",
+      "ETH",
+      "DOGE",
+      "XMR",
+      "XRP",
+      "SOL"
+    ],
+    "restricted_actions": [
+      "WITHDRAW"
+    ],
+    "max_transaction_amount": 10000,
+    "escalation_threshold": 50000,
+    "max_trades_per_hour": 10,
+    "max_trades_per_day": 50
+  },
+  "session_window": {
+    "start": "2026-11-23T17:34:50.494693+00:00",
+    "end": "2026-11-24 14:58:40",
+    "theory_id": 54,
+    "theory_version": 2,
+    "strategy": "mean_reversion"
+  },
+  "verdicts": {
+    "APPROVE": 1,
+    "MODIFY": 0,
+    "BLOCK": 3,
+    "ESCALATE": 1
+  },
+  "outcomes": {
+    "EXECUTED": 1,
+    "BLOCKED": 3,
+    "ESCALATED": 1,
+    "REJECTED": 0,
+    "PENDING": 0
+  },
+  "security_events": [
+    {
+      "transaction_id": 469,
+      "symbol": "XRP",
+      "action": "SELL",
+      "requested_quantity": 6891.2540319527,
+      "status": "BLOCKED",
+      "guardian_decision": "BLOCK",
+      "guardian_reason": "Independent hard rules failed: insufficient_holdings",
+      "risk_score": 100,
+      "created_at": "2026-11-24 14:58:40"
+    },
+    {
+      "transaction_id": 468,
+      "symbol": "XRP",
+      "action": "SELL",
+      "requested_quantity": 6890.2540319527,
+      "status": "ESCALATED",
+      "guardian_decision": "ESCALATE",
+      "guardian_reason": "Human review required: suspicious_instructions",
+      "risk_score": 80,
+      "created_at": "2026-11-24 14:54:24"
+    },
+    {
+      "transaction_id": 466,
+      "symbol": "XRP",
+      "action": "BUY",
+      "requested_quantity": 1277845.8748943654,
+      "status": "BLOCKED",
+      "guardian_decision": "BLOCK",
+      "guardian_reason": "Independent hard rules failed: transaction_ceiling, insufficient_cash",
+      "risk_score": 100,
+      "created_at": "2026-11-24 14:49:39"
+    },
+    {
+      "transaction_id": 404,
+      "symbol": "XRP",
+      "action": "BUY",
+      "requested_quantity": 6843.6943329625,
+      "status": "BLOCKED",
+      "guardian_decision": "BLOCK",
+      "guardian_reason": "Order violates active submitted theory: Model decision does not follow the submitted theory",
+      "risk_score": 90,
+      "created_at": "2026-11-23 19:25:59"
+    }
+  ],
+  "chains": {
+    "trader": {
+      "valid": true,
+      "count": 55,
+      "broken_seq": null,
+      "reason": "SHA-256 chain verified"
+    },
+    "guardian": {
+      "valid": true,
+      "count": 17,
+      "broken_seq": null,
+      "reason": "SHA-256 chain verified"
+    }
+  }
+}
