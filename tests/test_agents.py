@@ -1027,11 +1027,24 @@ class DashboardControlTests(unittest.TestCase):
         if os.name != "nt":
             self.assertTrue(any("Stopped." in line for line in status["log_tail"]))
 
+    def test_chosen_minutes_set_session_length(self):
+        status = self.supervisor.start("guardian", submit=False, minutes=3)
+        self.assertEqual(status["duration"], 180)
+        self.wait_for_log("guardian", "fake agent args")
+        args = next(l for l in self.supervisor.status("guardian")["log_tail"] if "fake agent args" in l)
+        self.assertIn("--loop --duration 180", args)
+
+    def test_minutes_outside_one_to_ten_rejected(self):
+        for bad in (0, 11, -1, True, 2.5, "5"):
+            with self.assertRaises(ValueError):
+                self.supervisor.start("trader", submit=False, minutes=bad)
+        self.assertFalse(self.supervisor.status("trader")["running"])
+
     def test_unknown_role_rejected(self):
         with self.assertRaises(ValueError):
             self.supervisor.start("full", submit=False)
 
-    def control_request(self, headers):
+    def control_request(self, headers, body=None):
         import http.client
         import threading
         from http.server import ThreadingHTTPServer
@@ -1042,7 +1055,7 @@ class DashboardControlTests(unittest.TestCase):
         thread.start()
         try:
             conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
-            conn.request("POST", "/api/agents/guardian/start", body=json.dumps({"submit": False}),
+            conn.request("POST", "/api/agents/guardian/start", body=json.dumps(body or {"submit": False}),
                          headers={"Content-Type": "application/json", **headers})
             return conn.getresponse().status
         finally:
@@ -1055,6 +1068,14 @@ class DashboardControlTests(unittest.TestCase):
         self.assertFalse(self.supervisor.status("guardian")["running"])
         self.assertEqual(self.control_request({"X-Ledger-Dashboard": "1"}), 200)
         self.assertTrue(self.supervisor.status("guardian")["running"])
+
+    def test_control_rejects_bad_minutes(self):
+        ok = {"X-Ledger-Dashboard": "1"}
+        for bad in (0, 11, "10", True):
+            self.assertEqual(self.control_request(ok, {"submit": False, "minutes": bad}), 400)
+        self.assertFalse(self.supervisor.status("guardian")["running"])
+        self.assertEqual(self.control_request(ok, {"submit": False, "minutes": 2}), 200)
+        self.assertEqual(self.supervisor.status("guardian")["duration"], 120)
 
 
 if __name__ == "__main__":

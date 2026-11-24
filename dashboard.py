@@ -21,6 +21,7 @@ import webbrowser
 
 ROLES = ("trader", "guardian")
 SESSION_SECONDS = 600          # Guide 8.3: no single session longer than 10 minutes.
+MAX_MINUTES = SESSION_SECONDS // 60
 CONTROL_HEADER = "X-Ledger-Dashboard"
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 
@@ -33,7 +34,7 @@ class AgentSupervisor:
         self.log_dir = Path(log_dir)
         self.python = python
         self.lock = threading.Lock()
-        self.procs = {}        # role -> {"proc", "submit", "started", "log"}
+        self.procs = {}        # role -> {"proc", "submit", "started", "duration", "log"}
 
     def _log_path(self, role):
         return self.log_dir / f"{role}.console.log"
@@ -42,29 +43,33 @@ class AgentSupervisor:
         entry = self.procs.get(role)
         return entry if entry and entry["proc"].poll() is None else None
 
-    def start(self, role, submit):
+    def start(self, role, submit, minutes=MAX_MINUTES):
         if role not in ROLES:
             raise ValueError("unknown_role")
+        if type(minutes) is not int or not 1 <= minutes <= MAX_MINUTES:
+            raise ValueError("invalid_duration")
+        duration = minutes * 60
         with self.lock:
             if self._alive(role):
                 raise RuntimeError("already_running")
             self.log_dir.mkdir(parents=True, exist_ok=True)
             log_path = self._log_path(role)
             command = [self.python, str(self.project_dir / f"{role}.py"),
-                       "--loop", "--duration", str(SESSION_SECONDS)]
+                       "--loop", "--duration", str(duration)]
             if submit:
                 command.append("--submit")
             env = {**os.environ, "PYTHONUNBUFFERED": "1"}
             with open(log_path, "w", encoding="utf-8") as log:
                 log.write(f"[dashboard] starting {role} ({'LIVE --submit' if submit else 'preview'}), "
-                          f"{SESSION_SECONDS}s cap\n")
+                          f"{duration}s session ({minutes} min)\n")
                 log.flush()
                 # Own session on POSIX: a closing terminal's hangup reaches only the dashboard,
                 # which then stops each agent with SIGINT so it can finish its cycle cleanly.
                 proc = subprocess.Popen(command, cwd=self.project_dir, stdout=log,
                                         stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=env,
                                         start_new_session=(os.name != "nt"))
-            self.procs[role] = {"proc": proc, "submit": bool(submit), "started": time.time(), "log": log_path}
+            self.procs[role] = {"proc": proc, "submit": bool(submit), "started": time.time(),
+                                "duration": duration, "log": log_path}
             return self.status(role)
 
     def stop(self, role, timeout=15):
@@ -103,10 +108,10 @@ class AgentSupervisor:
             tail = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-40:]
         if not entry:
             return {"role": role, "running": False, "submit": False, "elapsed": 0,
-                    "exit_code": None, "log_tail": tail}
+                    "duration": SESSION_SECONDS, "exit_code": None, "log_tail": tail}
         code = entry["proc"].poll()
         return {"role": role, "running": code is None, "submit": entry["submit"],
-                "elapsed": round(time.time() - entry["started"], 1),
+                "elapsed": round(time.time() - entry["started"], 1), "duration": entry["duration"],
                 "exit_code": code, "log_tail": tail}
 
     def all_status(self):
@@ -479,7 +484,11 @@ def make_handler(state_dir, html_path, supervisor=None):
                     if type(submit) is not bool:
                         self._send_json({"error": "submit_must_be_boolean"}, status=400)
                         return
-                    self._send_json(supervisor.start(role, submit))
+                    minutes = body.get("minutes", MAX_MINUTES)
+                    if type(minutes) is not int or not 1 <= minutes <= MAX_MINUTES:
+                        self._send_json({"error": f"minutes_must_be_1_to_{MAX_MINUTES}"}, status=400)
+                        return
+                    self._send_json(supervisor.start(role, submit, minutes))
                 else:
                     self._send_json(supervisor.stop(role))
             except RuntimeError as error:

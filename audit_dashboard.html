@@ -116,6 +116,12 @@
   .agent-actions button.live { background: #b91c1c; border-color: #991b1b; color: #ffffff; }
   .agent-actions button.stop { background: #0f2942; border-color: #0f2942; color: #ffffff; }
   .agent-actions button:disabled { opacity: 0.45; cursor: not-allowed; }
+  .agent-minutes { display: flex; align-items: center; gap: 5px; font-size: 0.78rem; color: var(--muted); font-weight: 600; margin-right: 4px; }
+  .agent-minutes select {
+    border: 1px solid var(--border); background: var(--panel-2); color: var(--navy);
+    padding: 5px 6px; border-radius: 6px; font-weight: 600; font-size: 0.8rem; cursor: pointer;
+  }
+  .agent-minutes select:disabled { opacity: 0.45; cursor: not-allowed; }
   .agent-console {
     margin: 10px 0 0; height: 170px; overflow-y: auto; background: #0f172a; color: #e2e8f0;
     border-radius: 6px; padding: 8px 10px; font-family: var(--mono); font-size: 0.72rem; line-height: 1.45;
@@ -153,6 +159,7 @@
         <span class="agent-status" data-role="guardian">stopped</span>
       </div>
       <div class="agent-actions">
+        <label class="agent-minutes">Run for <select data-role="guardian" aria-label="guardian session length"></select> min</label>
         <button data-role="guardian" data-act="preview">Start preview</button>
         <button data-role="guardian" data-act="live" class="live">Start LIVE</button>
         <button data-role="guardian" data-act="stop" class="stop">Stop</button>
@@ -166,6 +173,7 @@
         <span class="agent-status" data-role="trader">stopped</span>
       </div>
       <div class="agent-actions">
+        <label class="agent-minutes">Run for <select data-role="trader" aria-label="trader session length"></select> min</label>
         <button data-role="trader" data-act="preview">Start preview</button>
         <button data-role="trader" data-act="live" class="live">Start LIVE</button>
         <button data-role="trader" data-act="stop" class="stop">Stop</button>
@@ -427,11 +435,14 @@ function renderAgents(data) {
     const badge = document.querySelector(`.agent-status[data-role="${role}"]`);
     badge.className = "agent-status" + (a.running ? (a.submit ? " live" : " preview") : "");
     badge.textContent = a.running
-      ? `${a.submit ? "LIVE" : "preview"} · ${fmtTime(a.elapsed)} / ${fmtTime(data.session_seconds)}`
+      ? `${a.submit ? "LIVE" : "preview"} · ${fmtTime(a.elapsed)} / ${fmtTime(a.duration)}`
       : (a.exit_code === null ? "stopped" : `stopped (exit ${a.exit_code})`);
     document.querySelectorAll(`.agent-actions button[data-role="${role}"]`).forEach(b => {
       b.disabled = b.dataset.act === "stop" ? !a.running : a.running;
     });
+    const sel = minutesSelect(role);
+    sel.disabled = a.running;
+    if (a.running) sel.value = String(Math.round(a.duration / 60));
     const con = document.querySelector(`.agent-console[data-role="${role}"]`);
     const atBottom = con.scrollTop + con.clientHeight >= con.scrollHeight - 8;
     con.textContent = a.log_tail.length ? a.log_tail.join("\n") : "No output yet.";
@@ -446,9 +457,10 @@ async function refreshAgents() {
 async function agentAction(role, act) {
   const err = document.querySelector(`.agent-error[data-role="${role}"]`);
   err.textContent = "";
-  if (act === "live" && !confirm(`Start the ${role} in LIVE mode? It will send real ${role === "trader" ? "proposals" : "reviews"} to Ledger for up to 10 minutes.`)) return;
+  const minutes = Number(minutesSelect(role).value);
+  if (act === "live" && !confirm(`Start the ${role} in LIVE mode? It will send real ${role === "trader" ? "proposals" : "reviews"} to Ledger for ${minutes} minute${minutes === 1 ? "" : "s"}.`)) return;
   const path = act === "stop" ? "stop" : "start";
-  const body = act === "stop" ? {} : {submit: act === "live"};
+  const body = act === "stop" ? {} : {submit: act === "live", minutes};
   document.querySelectorAll(`.agent-actions button[data-role="${role}"]`).forEach(b => b.disabled = true);
   try {
     const r = await fetch(`/api/agents/${role}/${path}`, {method: "POST", headers: CONTROL_HEADERS, body: JSON.stringify(body)});
@@ -456,6 +468,12 @@ async function agentAction(role, act) {
   } catch (e) { err.textContent = "Dashboard server not reachable."; }
   refreshAgents();
 }
+
+// Session length: 1-10 minutes (Guide 8.3 caps any single session at 10 minutes).
+function minutesSelect(role) { return document.querySelector(`.agent-minutes select[data-role="${role}"]`); }
+document.querySelectorAll(".agent-minutes select").forEach(sel => {
+  for (let m = 1; m <= 10; m++) sel.add(new Option(String(m), String(m), m === 10, m === 10));
+});
 
 document.querySelectorAll(".agent-actions button").forEach(b =>
   b.addEventListener("click", () => agentAction(b.dataset.role, b.dataset.act)));
