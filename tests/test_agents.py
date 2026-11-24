@@ -1019,11 +1019,13 @@ class DashboardControlTests(unittest.TestCase):
             self.supervisor.start("trader", submit=True)
 
     def test_stop_sends_interrupt_for_clean_shutdown(self):
+        import os
         self.supervisor.start("trader", submit=False)
         self.wait_for_log("trader", "fake agent args")
         status = self.supervisor.stop("trader")
         self.assertFalse(status["running"])
-        self.assertTrue(any("Stopped." in line for line in status["log_tail"]))
+        if os.name != "nt":
+            self.assertTrue(any("Stopped." in line for line in status["log_tail"]))
 
     def test_unknown_role_rejected(self):
         with self.assertRaises(ValueError):

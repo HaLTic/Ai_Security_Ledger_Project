@@ -71,8 +71,11 @@ class AgentSupervisor:
             if not entry:
                 return self.status(role)
             proc = entry["proc"]
-            # SIGINT lets runner.py finish the cycle cleanly and keep journals consistent.
-            proc.send_signal(signal.SIGINT)
+            # SIGINT lets runner.py finish the cycle cleanly on POSIX; Windows uses terminate().
+            if os.name == "nt":
+                proc.terminate()
+            else:
+                proc.send_signal(signal.SIGINT)
             try:
                 proc.wait(timeout=timeout)
             except subprocess.TimeoutExpired:

@@ -23,6 +23,7 @@ def strict_json(text):
 PROVIDER_KEYS = {
     "meta_muse": ("META_API_KEY", "MUSE_MODEL", "META_BASE_URL"),
     "gemini": ("GOOGLE_API_KEY", "GEMINI_MODEL"),
+    "deepseek": ("DEEPSEEK_API_KEY", "DEEPSEEK_MODEL"),
 }
 DEFAULT_PROVIDER = "meta_muse"
 
@@ -47,7 +48,7 @@ def load_config(path, role, *, check_only=False):
     config = {k: v.strip() for k, v in config.items()}
     provider = config.get("LLM_PROVIDER", DEFAULT_PROVIDER).lower()
     if provider not in PROVIDER_KEYS:
-        raise ValueError("LLM_PROVIDER must be 'meta_muse' or 'gemini'")
+        raise ValueError("LLM_PROVIDER must be 'meta_muse', 'gemini', or 'deepseek'")
     role_key = f"{role.upper()}_API_KEY"
     provider_names = PROVIDER_KEYS[provider]
     required = {"LEDGER_BASE_URL", role_key, *provider_names}
