@@ -13,7 +13,7 @@ import requests
 from client import ApiError, Cooldown, LedgerClient, UncertainWrite
 from collect_evidence import summarize_account
 from config import load_config, strict_json
-from guardian import Guardian, decision
+from guardian import Guardian, decision, portfolio_value
 from llm import GUARDIAN_SCHEMA, TRADER_SCHEMA, GeminiModel, ModelError, MuseModel, build_model, model_name
 from market import Market, price_at, sample_signal
 from storage import Store, verify_chain
@@ -895,6 +895,80 @@ class HardenedGuardianTests(unittest.TestCase):
         self.assertEqual(self.api.history[0]["status"], "EXECUTED")
         payload = self.guardian_model.decide.call_args.args[1]
         self.assertIn("proposal_time_signal", payload)
+
+
+class DrawdownBreakerTests(unittest.TestCase):
+    """Goal-misalignment backstop: escalate new BUYs once the account falls too far from its peak."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.api = FakeLedger()
+        self.api.portfolio["total_value"] = 100000
+        self.trader_model = Mock()
+        self.trader_model.decide.return_value = {
+            "symbol": "BTC", "action": "BUY", "quantity": 1, "reasoning": "Momentum entry."}
+        self.guardian_model = Mock()
+        self.guardian_model.decide.return_value = decision("APPROVE", "Safe.", [], 10)
+        self.store = Store(self.temp.name, "guardian")
+        self.trader = Trader(self.api, self.trader_model, Store(self.temp.name, "trader"))
+        self.guardian = Guardian(self.api, self.guardian_model, self.store)
+        printer = patch("builtins.print")
+        printer.start()
+        self.addCleanup(printer.stop)
+
+    def set_peak(self, value):
+        self.store.save({"orders": {}, "drawdown": {"peak_value": str(value), "peak_time": "test"}})
+
+    def test_buy_escalated_when_drop_exceeds_limit(self):
+        self.set_peak(100000)
+        self.api.portfolio["total_value"] = 96500        # 3.5% below peak
+        self.trader.cycle(submit=True)
+        self.guardian.cycle(submit=True)
+        self.assertEqual(self.api.history[0]["status"], "ESCALATED")
+        self.assertEqual(self.api.posts[-1][1]["rules_triggered"], ["drawdown_circuit_breaker"])
+        self.guardian_model.decide.assert_not_called()
+        events = [json.loads(line)["event"] for line in
+                  (Path(self.temp.name) / "guardian.jsonl").read_text().splitlines()]
+        self.assertIn("drawdown_breaker_tripped", events)
+
+    def test_buy_allowed_within_limit_and_peak_kept(self):
+        self.set_peak(100000)
+        self.api.portfolio["total_value"] = 98000        # 2% below peak
+        self.trader.cycle(submit=True)
+        self.guardian.cycle(submit=True)
+        self.assertEqual(self.api.history[0]["status"], "EXECUTED")
+        self.assertEqual(self.store.read()["drawdown"]["peak_value"], "100000")
+
+    def test_new_high_raises_the_peak(self):
+        self.set_peak(100000)
+        self.api.portfolio["total_value"] = 101000
+        self.trader.cycle(submit=True)
+        self.guardian.cycle(submit=True)
+        self.assertEqual(number(self.store.read()["drawdown"]["peak_value"]), 101000)
+
+    def test_first_observation_sets_peak(self):
+        self.trader.cycle(submit=True)
+        self.guardian.cycle(submit=True)
+        self.assertEqual(number(self.store.read()["drawdown"]["peak_value"]), 100000)
+
+    def test_sell_never_held_back(self):
+        self.set_peak(100000)
+        sell = {"symbol": "BTC", "action": "SELL", "quantity": "1"}
+        self.assertIsNone(self.guardian.drawdown_check(sell, {"total_value": 80000})["decision"])
+        self.assertIsNone(self.guardian.drawdown_check(sell, {})["decision"])
+
+    def test_buy_escalated_when_value_unverifiable(self):
+        buy = {"symbol": "BTC", "action": "BUY", "quantity": "1"}
+        result = self.guardian.drawdown_check(buy, {"cash_balance": "oops"})
+        self.assertEqual(result["decision"]["decision"], "ESCALATE")
+        self.assertEqual(result["decision"]["rules_triggered"], ["drawdown_value_unavailable"])
+
+    def test_value_computed_from_cash_and_holdings(self):
+        portfolio = {"cash_balance": "95000", "holdings": [
+            {"symbol": "BTC", "quantity": "2", "market_value": "3000"},
+            {"symbol": "ETH", "quantity": "4", "current_price": "500"}]}
+        self.assertEqual(portfolio_value(portfolio), number(100000))
 
 
 class AuditChainTests(unittest.TestCase):

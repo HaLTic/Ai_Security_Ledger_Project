@@ -13,6 +13,28 @@ from validation import (
 )
 
 
+# Goal-misalignment backstop (Week 7: "a corrupted trading agent might maximize losses").
+# Each order can pass every per-order check while the account still bleeds, so the Guardian
+# also tracks its own high-water mark and escalates new BUYs once the drop exceeds this limit.
+DRAWDOWN_LIMIT_PCT = Decimal("3")
+
+
+def portfolio_value(portfolio):
+    """Total account value from the Guardian's own portfolio read (cash + holdings)."""
+    if portfolio.get("total_value") is not None:
+        total = number(portfolio["total_value"])
+    else:
+        total = number(portfolio["cash_balance"])
+        for holding in portfolio.get("holdings") or []:
+            if holding.get("market_value") is not None:
+                total += number(holding["market_value"])
+            else:
+                total += quantity(holding["quantity"]) * number(holding["current_price"])
+    if total <= 0:
+        raise ValueError("Portfolio value must be positive")
+    return total
+
+
 class ProvenanceError(ValidationError):
     pass
 
@@ -79,6 +101,7 @@ class Guardian:
     def assess(self, pending, order):
         summary = {
             "hard_rules": "pending",
+            "drawdown_breaker": "pending",
             "theory_provenance": "pending",
             "theory_compliance": "pending",
             "news_injection_scan": "pending",
@@ -96,6 +119,10 @@ class Guardian:
             summary["hard_rules"] = f"ESCALATE ({', '.join(escalations)})"
             return decision("ESCALATE", "Human review required: " + ", ".join(escalations), escalations, 80)
         summary["hard_rules"] = "PASS"
+        tripped = self.drawdown_check(order, portfolio)
+        summary["drawdown_breaker"] = tripped["summary"]
+        if tripped["decision"]:
+            return tripped["decision"]
         theory = self.theory_for(pending)
         summary["theory_provenance"] = f"PASS (v{theory['version']})"
         # Guardian calculates its own strategy evidence and validates theory compliance.
@@ -164,6 +191,37 @@ class Guardian:
         validated = validate_review(answer, order["quantity"])
         summary["llm_review"] = f"{validated['decision']} (risk={validated['risk_score']})"
         return validated
+
+    def drawdown_check(self, order, portfolio):
+        """Update the saved high-water mark; escalate a BUY once the drop from it is too large.
+
+        SELLs are never held back here, so stop-loss and take-profit exits still reach review.
+        """
+        try:
+            value = portfolio_value(portfolio)
+        except (ValidationError, ValueError, KeyError, TypeError, ArithmeticError):
+            if order["action"] == "BUY":
+                return {"summary": "ESCALATE (portfolio_value_unavailable)",
+                        "decision": decision("ESCALATE", "Portfolio value could not be verified for the "
+                                             "drawdown circuit breaker.", ["drawdown_value_unavailable"], 80)}
+            return {"summary": "SKIP (value unavailable; SELL allowed)", "decision": None}
+        state = self.store.read() or {"orders": {}}
+        saved = state.get("drawdown") or {}
+        peak = number(saved["peak_value"]) if saved.get("peak_value") is not None else value
+        if value >= peak:
+            peak = value
+            state["drawdown"] = {"peak_value": format(peak, "f"),
+                                 "peak_time": datetime.now(timezone.utc).isoformat()}
+            self.store.save(state)
+        drop_pct = (peak - value) / peak * Decimal(100)
+        detail = f"{drop_pct:.2f}% below peak {peak:.2f} (limit {DRAWDOWN_LIMIT_PCT}%)"
+        if drop_pct > DRAWDOWN_LIMIT_PCT and order["action"] == "BUY":
+            self.store.log("drawdown_breaker_tripped", peak_value=format(peak, "f"),
+                           current_value=format(value, "f"), drop_pct=format(drop_pct, ".4f"))
+            return {"summary": f"ESCALATE ({detail})",
+                    "decision": decision("ESCALATE", f"Drawdown circuit breaker: portfolio is {detail}; "
+                                         "new purchases need human review.", ["drawdown_circuit_breaker"], 85)}
+        return {"summary": f"PASS ({detail})", "decision": None}
 
     @staticmethod
     def anomalies(order, quote, history, signals=None):

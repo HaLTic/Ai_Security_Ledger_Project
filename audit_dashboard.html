@@ -339,6 +339,7 @@ function renderDetail(ev) {
         <div class="kv"><span>Risk Score</span><span>${esc(ev.risk_score)} / 100</span></div>
         ${ev.modified_quantity ? `<div class="kv"><span>Modified Qty</span><span>${esc(ev.modified_quantity)}</span></div>` : ""}
         <div class="kv"><span>Hard Rules</span><span>${esc(ls.hard_rules || "n/a")}</span></div>
+        <div class="kv"><span>Drawdown Breaker</span><span>${esc(ls.drawdown_breaker || "n/a")}</span></div>
         <div class="kv"><span>Provenance</span><span>${esc(ls.theory_provenance || "n/a")}</span></div>
         <div class="kv"><span>Compliance</span><span>${esc(ls.theory_compliance || "n/a")}</span></div>
         <div class="kv"><span>News Check</span><span>${esc(ls.news_injection_scan || "n/a")}</span></div>
