@@ -1,0 +1,269 @@
+{
+  "coin": "SOL",
+  "member": "Ibrahim Alhashmi",
+  "student_id": "100059929",
+  "executed_fills": 9,
+  "sample_count": 79,
+  "start_value": 100000.0,
+  "end_value": 99225.4,
+  "portfolio_return_pct": -0.7746,
+  "max_drawdown_pct": -0.9839,
+  "buy_and_hold_pct": -16.0385,
+  "policy": {
+    "allowed_symbols": [
+      "SOL"
+    ],
+    "restricted_actions": [
+      "WITHDRAW"
+    ],
+    "max_transaction_amount": 10000,
+    "escalation_threshold": 6000,
+    "max_trades_per_hour": 10,
+    "max_trades_per_day": 50
+  },
+  "session_window": {
+    "start": "2026-11-24 09:15:18",
+    "end": "2026-11-25 17:30:03",
+    "theory_id": 76,
+    "theory_version": 10,
+    "strategy": "mean_reversion"
+  },
+  "verdicts": {
+    "APPROVE": 0,
+    "MODIFY": 0,
+    "BLOCK": 16,
+    "ESCALATE": 12
+  },
+  "outcomes": {
+    "EXECUTED": 9,
+    "BLOCKED": 18,
+    "ESCALATED": 1,
+    "REJECTED": 0,
+    "PENDING": 0
+  },
+  "security_events": [
+    {
+      "transaction_id": 681,
+      "symbol": "SOL",
+      "action": "BUY",
+      "requested_quantity": 15.9160692548,
+      "status": "ESCALATED",
+      "guardian_decision": "ESCALATE",
+      "guardian_reason": "Human review required: suspicious_instructions",
+      "risk_score": 80,
+      "created_at": "2026-11-25 17:30:03"
+    },
+    {
+      "transaction_id": 673,
+      "symbol": "SOL",
+      "action": "BUY",
+      "requested_quantity": 20.195427808,
+      "status": "BLOCKED",
+      "guardian_decision": "BLOCK",
+      "guardian_reason": "Order violates active submitted theory: Order exceeds permitted per-buy budget",
+      "risk_score": 90,
+      "created_at": "2026-11-25 17:12:26"
+    },
+    {
+      "transaction_id": 672,
+      "symbol": "SOL",
+      "action": "BUY",
+      "requested_quantity": 20.1579393987,
+      "status": "BLOCKED",
+      "guardian_decision": "BLOCK",
+      "guardian_reason": "Order violates active submitted theory: Order exceeds permitted per-buy budget",
+      "risk_score": 90,
+      "created_at": "2026-11-25 17:11:08"
+    },
+    {
+      "transaction_id": 669,
+      "symbol": "SOL",
+      "action": "BUY",
+      "requested_quantity": 22.3027650579,
+      "status": "BLOCKED",
+      "guardian_decision": "BLOCK",
+      "guardian_reason": "Order violates active submitted theory: Order exceeds permitted per-buy budget",
+      "risk_score": 90,
+      "created_at": "2026-11-25 16:51:38"
+    },
+    {
+      "transaction_id": 667,
+      "symbol": "SOL",
+      "action": "BUY",
+      "requested_quantity": 22.4928633472,
+      "status": "BLOCKED",
+      "guardian_decision": "BLOCK",
+      "guardian_reason": "Order violates active submitted theory: Model decision does not follow the submitted theory",
+      "risk_score": 90,
+      "created_at": "2026-11-25 16:42:39"
+    },
+    {
+      "transaction_id": 514,
+      "symbol": "SOL",
+      "action": "BUY",
+      "requested_quantity": 22.3101561304,
+      "status": "BLOCKED",
+      "guardian_decision": "ESCALATE",
+      "guardian_reason": "Human review required: suspicious_instructions",
+      "risk_score": 80,
+      "created_at": "2026-11-24 19:40:08"
+    },
+    {
+      "transaction_id": 497,
+      "symbol": "SOL",
+      "action": "BUY",
+      "requested_quantity": 22.613616296,
+      "status": "BLOCKED",
+      "guardian_decision": "ESCALATE",
+      "guardian_reason": "Human review required: suspicious_instructions",
+      "risk_score": 80,
+      "created_at": "2026-11-24 19:03:26"
+    },
+    {
+      "transaction_id": 496,
+      "symbol": "SOL",
+      "action": "BUY",
+      "requested_quantity": 22.7197980531,
+      "status": "BLOCKED",
+      "guardian_decision": "BLOCK",
+      "guardian_reason": "Order violates active submitted theory: Order exceeds permitted per-buy budget",
+      "risk_score": 90,
+      "created_at": "2026-11-24 19:02:09"
+    },
+    {
+      "transaction_id": 453,
+      "symbol": "SOL",
+      "action": "BUY",
+      "requested_quantity": 3941.0180013364,
+      "status": "BLOCKED",
+      "guardian_decision": "BLOCK",
+      "guardian_reason": "Independent hard rules failed: transaction_ceiling, insufficient_cash",
+      "risk_score": 100,
+      "created_at": "2026-11-24 09:29:49"
+    },
+    {
+      "transaction_id": 452,
+      "symbol": "SOL",
+      "action": "SELL",
+      "requested_quantity": 1,
+      "status": "BLOCKED",
+      "guardian_decision": "BLOCK",
+      "guardian_reason": "Independent hard rules failed: insufficient_holdings",
+      "risk_score": 100,
+      "created_at": "2026-11-24 09:21:37"
+    },
+    {
+      "transaction_id": 451,
+      "symbol": "SOL",
+      "action": "BUY",
+      "requested_quantity": 3.817020002,
+      "status": "BLOCKED",
+      "guardian_decision": "BLOCK",
+      "guardian_reason": "Order violates active submitted theory: Model decision does not follow the submitted theory",
+      "risk_score": 90,
+      "created_at": "2026-11-24 09:16:14"
+    },
+    {
+      "transaction_id": 450,
+      "symbol": "SOL",
+      "action": "BUY",
+      "requested_quantity": 3.817020002,
+      "status": "BLOCKED",
+      "guardian_decision": "BLOCK",
+      "guardian_reason": "Order violates active submitted theory: Model decision does not follow the submitted theory",
+      "risk_score": 90,
+      "created_at": "2026-11-24 09:16:14"
+    },
+    {
+      "transaction_id": 449,
+      "symbol": "SOL",
+      "action": "BUY",
+      "requested_quantity": 3.817020002,
+      "status": "BLOCKED",
+      "guardian_decision": "BLOCK",
+      "guardian_reason": "Order violates active submitted theory: Model decision does not follow the submitted theory",
+      "risk_score": 90,
+      "created_at": "2026-11-24 09:16:14"
+    },
+    {
+      "transaction_id": 448,
+      "symbol": "SOL",
+      "action": "BUY",
+      "requested_quantity": 3.817020002,
+      "status": "BLOCKED",
+      "guardian_decision": "BLOCK",
+      "guardian_reason": "Order violates active submitted theory: Model decision does not follow the submitted theory",
+      "risk_score": 90,
+      "created_at": "2026-11-24 09:16:14"
+    },
+    {
+      "transaction_id": 447,
+      "symbol": "SOL",
+      "action": "BUY",
+      "requested_quantity": 3.817020002,
+      "status": "BLOCKED",
+      "guardian_decision": "BLOCK",
+      "guardian_reason": "Order violates active submitted theory: Model decision does not follow the submitted theory",
+      "risk_score": 90,
+      "created_at": "2026-11-24 09:16:14"
+    },
+    {
+      "transaction_id": 446,
+      "symbol": "SOL",
+      "action": "BUY",
+      "requested_quantity": 3.817020002,
+      "status": "BLOCKED",
+      "guardian_decision": "BLOCK",
+      "guardian_reason": "Order violates active submitted theory: Model decision does not follow the submitted theory",
+      "risk_score": 90,
+      "created_at": "2026-11-24 09:16:14"
+    },
+    {
+      "transaction_id": 445,
+      "symbol": "SOL",
+      "action": "BUY",
+      "requested_quantity": 3.817020002,
+      "status": "BLOCKED",
+      "guardian_decision": "BLOCK",
+      "guardian_reason": "Order violates active submitted theory: Model decision does not follow the submitted theory",
+      "risk_score": 90,
+      "created_at": "2026-11-24 09:16:14"
+    },
+    {
+      "transaction_id": 444,
+      "symbol": "SOL",
+      "action": "BUY",
+      "requested_quantity": 3.817020002,
+      "status": "BLOCKED",
+      "guardian_decision": "BLOCK",
+      "guardian_reason": "Order violates active submitted theory: Model decision does not follow the submitted theory",
+      "risk_score": 90,
+      "created_at": "2026-11-24 09:16:14"
+    },
+    {
+      "transaction_id": 443,
+      "symbol": "SOL",
+      "action": "BUY",
+      "requested_quantity": 3826.9487671212,
+      "status": "BLOCKED",
+      "guardian_decision": "BLOCK",
+      "guardian_reason": "Independent hard rules failed: transaction_ceiling, insufficient_cash",
+      "risk_score": 100,
+      "created_at": "2026-11-24 09:15:18"
+    }
+  ],
+  "chains": {
+    "trader": {
+      "valid": true,
+      "count": 297,
+      "broken_seq": null,
+      "reason": "SHA-256 chain verified"
+    },
+    "guardian": {
+      "valid": true,
+      "count": 48,
+      "broken_seq": null,
+      "reason": "SHA-256 chain verified"
+    }
+  }
+}
