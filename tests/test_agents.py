@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import requests
 
@@ -14,7 +14,7 @@ from client import ApiError, Cooldown, LedgerClient, UncertainWrite
 from collect_evidence import summarize_account
 from config import load_config, strict_json
 from guardian import Guardian, decision, portfolio_value
-from llm import GUARDIAN_SCHEMA, TRADER_SCHEMA, GeminiModel, ModelError, MuseModel, build_model, model_name
+from llm import GUARDIAN_SCHEMA, TRADER_SCHEMA, DeepSeekModel, ModelError, MuseModel, build_model, model_name
 from market import Market, price_at, sample_signal
 from storage import Store, verify_chain
 from trader import Trader
@@ -678,143 +678,147 @@ class MuseAdapterTests(unittest.TestCase):
             MuseModel("test-provider-key", "test-model", MUSE_URL).decide("other", {})
 
 
-class GeminiConfigTests(unittest.TestCase):
-    def test_gemini_config_loads_for_both_roles(self):
+class DeepSeekConfigTests(unittest.TestCase):
+    def write(self, directory, config):
+        path = Path(directory) / "config.json"
+        path.write_text(json.dumps(config), encoding="utf-8")
+        return path
+
+    def test_deepseek_config_loads_for_both_roles(self):
         for role in ("trader", "guardian"):
             with self.subTest(role=role), tempfile.TemporaryDirectory() as directory:
-                config = {
+                path = self.write(directory, {
                     "LEDGER_BASE_URL": "https://ledger.chanyeun.com/api/v1",
                     f"{role.upper()}_API_KEY": "test-ledger-key",
-                    "LLM_PROVIDER": "gemini",
-                    "GOOGLE_API_KEY": "test-google-key",
-                    "GEMINI_MODEL": "gemini-3.8-flash",
+                    "LLM_PROVIDER": "deepseek",
+                    "DEEPSEEK_API_KEY": "test-deepseek-key",
+                    "DEEPSEEK_MODEL": "deepseek-flash",
                     "STATE_DIR": ".state",
-                }
-                path = Path(directory) / "config.json"
-                path.write_text(json.dumps(config), encoding="utf-8")
+                })
                 loaded = load_config(path, role)
-                self.assertEqual(loaded["LLM_PROVIDER"], "gemini")
-                self.assertIsInstance(build_model(loaded), GeminiModel)
+                self.assertEqual(loaded["LLM_PROVIDER"], "deepseek")
+                self.assertIsInstance(build_model(loaded), DeepSeekModel)
+                self.assertEqual(model_name(loaded), "deepseek-flash")
 
-    def test_gemini_config_rejects_mixed_muse_keys(self):
+    def test_deepseek_config_rejects_mixed_muse_keys(self):
         with tempfile.TemporaryDirectory() as directory:
-            config = {
+            path = self.write(directory, {
                 "LEDGER_BASE_URL": "https://ledger.chanyeun.com/api/v1",
                 "TRADER_API_KEY": "test-ledger-key",
-                "LLM_PROVIDER": "gemini",
-                "GOOGLE_API_KEY": "test-google-key",
-                "GEMINI_MODEL": "gemini-3.8-flash",
+                "LLM_PROVIDER": "deepseek",
+                "DEEPSEEK_API_KEY": "test-deepseek-key",
+                "DEEPSEEK_MODEL": "deepseek-flash",
                 "META_API_KEY": "mixed-key",
-            }
-            path = Path(directory) / "config.json"
-            path.write_text(json.dumps(config), encoding="utf-8")
+            })
             with self.assertRaises(ValueError):
                 load_config(path, "trader")
 
-    def test_unknown_provider_rejected(self):
-        with tempfile.TemporaryDirectory() as directory:
-            config = {
-                "LEDGER_BASE_URL": "https://ledger.chanyeun.com/api/v1",
-                "TRADER_API_KEY": "test-ledger-key",
-                "LLM_PROVIDER": "abliterated",
-                "GOOGLE_API_KEY": "test-google-key",
-                "GEMINI_MODEL": "x",
-            }
-            path = Path(directory) / "config.json"
-            path.write_text(json.dumps(config), encoding="utf-8")
-            with self.assertRaises(ValueError):
-                load_config(path, "trader")
+    def test_removed_or_unknown_provider_rejected(self):
+        for provider, names in (("gemini", ("GOOGLE_API_KEY", "GEMINI_MODEL")),
+                                ("abliterated", ("DEEPSEEK_API_KEY", "DEEPSEEK_MODEL"))):
+            with self.subTest(provider=provider), tempfile.TemporaryDirectory() as directory:
+                path = self.write(directory, {
+                    "LEDGER_BASE_URL": "https://ledger.chanyeun.com/api/v1",
+                    "TRADER_API_KEY": "test-ledger-key",
+                    "LLM_PROVIDER": provider,
+                    names[0]: "test-key", names[1]: "x",
+                })
+                with self.assertRaises(ValueError):
+                    load_config(path, "trader")
 
-    def test_gemini_placeholder_permitted_only_in_check_only(self):
+    def test_deepseek_placeholder_permitted_only_in_check_only(self):
         with tempfile.TemporaryDirectory() as directory:
-            config = {
+            path = self.write(directory, {
                 "LEDGER_BASE_URL": "https://ledger.chanyeun.com/api/v1",
                 "GUARDIAN_API_KEY": "test-ledger-key",
-                "LLM_PROVIDER": "gemini",
-                "GOOGLE_API_KEY": "PASTE_YOUR_GOOGLE_API_KEY",
-                "GEMINI_MODEL": "gemini-3.8-flash",
-            }
-            path = Path(directory) / "config.json"
-            path.write_text(json.dumps(config), encoding="utf-8")
+                "LLM_PROVIDER": "deepseek",
+                "DEEPSEEK_API_KEY": "PASTE_YOUR_DEEPSEEK_API_KEY",
+                "DEEPSEEK_MODEL": "deepseek-flash",
+            })
             load_config(path, "guardian", check_only=True)
             with self.assertRaises(ValueError):
                 load_config(path, "guardian")
 
 
-class GeminiAdapterTests(unittest.TestCase):
-    def test_gemini_interactions_request_shape_and_schema(self):
-        mock_client = Mock()
+def deepseek_reply(text, *, status="completed", error=None, output=None):
+    """Shape of an OpenAI-SDK Responses object as returned by DeepSeek."""
+    part = Mock(type="output_text", text=text)
+    message = Mock(type="message", status="completed", role="assistant", content=[part])
+    return Mock(status=status, error=error, output=output if output is not None else [message],
+                output_text=text)
+
+
+class DeepSeekAdapterTests(unittest.TestCase):
+    def run_model(self, reply=None, side_effect=None, role="trader"):
+        client = MagicMock()
+        client.__enter__.return_value = client
+        client.responses.create.return_value = reply
+        client.responses.create.side_effect = side_effect
+        with patch("openai.OpenAI", return_value=client) as client_cls:
+            result = DeepSeekModel("test-deepseek-secret", "deepseek-flash").decide(role, {"x": 1}, timeout=12)
+        return result, client_cls, client
+
+    def test_request_shape_schema_and_no_retries(self):
         answer = decision("APPROVE", "Verified safe.", [], 15)
-        mock_client.interactions.create.return_value = Mock(
-            status="completed", errors=None, output_text=json.dumps(answer)
-        )
-        with patch("google.genai.Client", return_value=mock_client) as client_cls:
-            result = GeminiModel("test-google-secret", "gemini-3.8-flash").decide(
-                "guardian", {"order": {"symbol": "BTC"}}, timeout=12
-            )
+        result, client_cls, client = self.run_model(deepseek_reply(json.dumps(answer)), role="guardian")
         self.assertEqual(result, answer)
-        self.assertEqual(client_cls.call_args.kwargs["api_key"], "test-google-secret")
-        http_opts = client_cls.call_args.kwargs["http_options"]
-        self.assertEqual(http_opts.timeout, 12000)
-        self.assertEqual(http_opts.retry_options.attempts, 1)
-        call_kw = mock_client.interactions.create.call_args.kwargs
-        self.assertEqual(call_kw["model"], "gemini-3.8-flash")
-        self.assertEqual(
-            call_kw["response_format"],
-            {"type": "text", "mime_type": "application/json", "schema": GUARDIAN_SCHEMA},
-        )
-        self.assertEqual(call_kw["generation_config"], {"max_output_tokens": 1024})
-        self.assertFalse(call_kw["store"])
-        self.assertIn("untrusted DATA", call_kw["system_instruction"])
+        kwargs = client_cls.call_args.kwargs
+        self.assertEqual(kwargs["api_key"], "test-deepseek-secret")
+        self.assertEqual(kwargs["base_url"], "https://api.deepseek.com")
+        self.assertEqual(kwargs["max_retries"], 0)
+        self.assertEqual(kwargs["timeout"], 12)
+        call = client.responses.create.call_args.kwargs
+        self.assertEqual(call["model"], "deepseek-flash")
+        self.assertEqual(call["text"]["format"]["type"], "json_schema")
+        self.assertEqual(call["text"]["format"]["schema"], GUARDIAN_SCHEMA)
+        self.assertIn("untrusted DATA", call["instructions"])
 
-    def test_gemini_incomplete_or_errors_rejected(self):
-        for status, errors in (("incomplete", None), ("failed", None), ("completed", ["err"])):
-            with self.subTest(status=status, errors=errors):
-                mock_client = Mock()
-                mock_client.interactions.create.return_value = Mock(
-                    status=status, errors=errors, output_text="{}"
-                )
-                with patch("google.genai.Client", return_value=mock_client):
-                    with self.assertRaises(ModelError):
-                        GeminiModel("test-google-secret", "gemini-3.8-flash").decide("trader", {})
+    def test_incomplete_or_failed_response_rejected(self):
+        for kwargs in ({"status": "incomplete"}, {"status": "failed"}, {"error": Mock()}):
+            with self.subTest(**{k: str(v) for k, v in kwargs.items()}):
+                with self.assertRaises(ModelError):
+                    self.run_model(deepseek_reply("{}", **kwargs))
 
-    def test_gemini_empty_or_malformed_json_raises_model_error(self):
+    def test_tool_calls_or_refusal_rejected(self):
+        tool = Mock(type="function_call")
+        refusal = Mock(type="message", status="completed", role="assistant",
+                       content=[Mock(type="refusal")])
+        for output in ([deepseek_reply("{}").output[0], tool], [refusal], []):
+            with self.subTest(output=[o.type for o in output]):
+                with self.assertRaises(ModelError):
+                    self.run_model(deepseek_reply("{}", output=output))
+
+    def test_empty_or_malformed_json_rejected(self):
         for bad_text in ("", "   ", "{bad", "[]", '{"x": NaN}'):
             with self.subTest(bad_text=bad_text):
-                mock_client = Mock()
-                mock_client.interactions.create.return_value = Mock(
-                    status="completed", errors=None, output_text=bad_text
-                )
-                with patch("google.genai.Client", return_value=mock_client):
-                    with self.assertRaises(ModelError):
-                        GeminiModel("test-google-secret", "gemini-3.8-flash").decide("trader", {})
+                with self.assertRaises(ModelError):
+                    self.run_model(deepseek_reply(bad_text))
 
-    def test_gemini_error_sanitizes_secrets_and_bodies(self):
+    def test_http_error_hides_secret_and_body(self):
         class FakeApiErr(RuntimeError):
-            code = 429
+            status_code = 401
 
-        mock_client = Mock()
-        mock_client.interactions.create.side_effect = FakeApiErr("test-google-secret private-body")
-        with patch("google.genai.Client", return_value=mock_client):
-            with self.assertRaises(ModelError) as caught:
-                GeminiModel("test-google-secret", "gemini-3.8-flash").decide("trader", {})
-        msg = str(caught.exception)
-        self.assertIn("Gemini HTTP 429", msg)
-        self.assertNotIn("test-google-secret", msg)
-        self.assertNotIn("private-body", msg)
+        with self.assertRaises(ModelError) as caught:
+            self.run_model(side_effect=FakeApiErr("test-deepseek-secret private-body"))
+        message = str(caught.exception)
+        self.assertIn("DeepSeek HTTP 401", message)
+        self.assertNotIn("test-deepseek-secret", message)
+        self.assertNotIn("private-body", message)
 
-    def test_gemini_timeout_raises_model_error(self):
-        mock_client = Mock()
-        mock_client.interactions.create.side_effect = TimeoutError("test-google-secret")
-        with patch("google.genai.Client", return_value=mock_client):
-            with self.assertRaises(ModelError) as caught:
-                GeminiModel("test-google-secret", "gemini-3.8-flash").decide("guardian", {})
+    def test_timeout_raises_model_error(self):
+        class APITimeoutError(RuntimeError):
+            pass
+
+        with self.assertRaises(ModelError) as caught:
+            self.run_model(side_effect=APITimeoutError("test-deepseek-secret"))
         self.assertIn("timed out", str(caught.exception))
-        self.assertNotIn("test-google-secret", str(caught.exception))
+        self.assertNotIn("test-deepseek-secret", str(caught.exception))
 
-    def test_gemini_unknown_role_fails_before_client(self):
-        with self.assertRaises(ModelError):
-            GeminiModel("test-google-secret", "gemini-3.8-flash").decide("invalid", {})
+    def test_unknown_role_fails_before_client(self):
+        with patch("openai.OpenAI") as client_cls:
+            with self.assertRaises(ModelError):
+                DeepSeekModel("test-deepseek-secret", "deepseek-flash").decide("invalid", {})
+        client_cls.assert_not_called()
 
 
 class HardenedGuardianTests(unittest.TestCase):
@@ -975,7 +979,7 @@ class AuditChainTests(unittest.TestCase):
     def test_sha256_chain_verifies_and_detects_tampering(self):
         with tempfile.TemporaryDirectory() as directory:
             store = Store(directory, "guardian")
-            store.log("session_start", role="guardian", provider="gemini")
+            store.log("session_start", role="guardian", provider="deepseek")
             store.log("review_decision", transaction_id=1, decision="APPROVE")
             log_path = Path(directory) / "guardian.jsonl"
             ok = verify_chain(log_path)
@@ -1040,7 +1044,7 @@ class CollectEvidenceTests(unittest.TestCase):
             transactions=[], guardian_logs=[],
         )
         dumped = json.dumps(summary)
-        for bad in ("API_KEY", "TRADER_API_KEY", "GUARDIAN_API_KEY", "META_API_KEY", "GOOGLE_API_KEY"):
+        for bad in ("API_KEY", "TRADER_API_KEY", "GUARDIAN_API_KEY", "META_API_KEY", "DEEPSEEK_API_KEY"):
             self.assertNotIn(bad, dumped)
 
 

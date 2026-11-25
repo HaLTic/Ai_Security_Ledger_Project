@@ -191,7 +191,7 @@ def build():
     add_card(s2, 0.6, 1.35, 3.85, 5.4, "Layer 1: Trading Agent", [
         "Uses trader-scoped key only (cannot review)",
         "Rebuilds 61 historical samples via Appendix A",
-        "Runs on DeepSeek (deepseek-flash); Muse Spark or Gemini also supported",
+        "Runs on DeepSeek (deepseek-flash); Muse Spark also supported",
         "Validates exact JSON fields and Decimal limits locally",
         "HOLDs on any replay, schema, model or API error (no model fallback)",
     ], accent=BLUE)
@@ -297,8 +297,8 @@ def build():
 
     # Slide 6: Security Verification & Attack Simulator
     s6 = prs.slides.add_slide(blank)
-    add_header(s6, "Security Verification and Live Attack Simulator Evidence", "101/101 unit tests passing + live Ledger Attack Simulator runs", 6)
-    add_card(s6, 0.6, 1.35, 5.95, 5.4, "Verified Unit Tests (101 / 101 Passing)", [
+    add_header(s6, "Security Verification and Live Attack Simulator Evidence", "102/102 unit tests passing + live Ledger Attack Simulator runs", 6)
+    add_card(s6, 0.6, 1.35, 5.95, 5.4, "Verified Unit Tests (102 / 102 Passing)", [
         "1. Oversized order blocked pre-LLM (transaction_ceiling)",
         "2. Hourly/daily quota enforced at >= equality",
         "3. Unsupported short sale blocked pre-LLM (insufficient_holdings)",

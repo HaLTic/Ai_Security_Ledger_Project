@@ -1,8 +1,8 @@
 {
   "LEDGER_BASE_URL": "https://ledger.chanyeun.com/api/v1",
   "GUARDIAN_API_KEY": "PASTE_YOUR_GUARDIAN_KEY",
-  "LLM_PROVIDER": "gemini",
-  "GOOGLE_API_KEY": "PASTE_YOUR_GOOGLE_API_KEY",
-  "GEMINI_MODEL": "gemini-3.8-flash",
+  "LLM_PROVIDER": "deepseek",
+  "DEEPSEEK_API_KEY": "PASTE_YOUR_DEEPSEEK_API_KEY",
+  "DEEPSEEK_MODEL": "deepseek-flash",
   "STATE_DIR": ".state"
 }
