@@ -2,13 +2,13 @@
   "coin": "XRP",
   "member": "Mohamed Alromaithi",
   "student_id": "100060448",
-  "executed_fills": 1,
-  "sample_count": 13,
+  "executed_fills": 5,
+  "sample_count": 21,
   "start_value": 100000.0,
-  "end_value": 100735.79,
-  "portfolio_return_pct": 0.7358,
+  "end_value": 100550.95,
+  "portfolio_return_pct": 0.551,
   "max_drawdown_pct": -0.158,
-  "buy_and_hold_pct": 6.2521,
+  "buy_and_hold_pct": 5.4827,
   "policy": {
     "allowed_symbols": [
       "BTC",
@@ -28,7 +28,7 @@
   },
   "session_window": {
     "start": "2026-11-23T17:34:50.494693+00:00",
-    "end": "2026-11-24 14:58:40",
+    "end": "2026-11-25 12:05:48",
     "theory_id": 54,
     "theory_version": 2,
     "strategy": "mean_reversion"
@@ -36,17 +36,39 @@
   "verdicts": {
     "APPROVE": 1,
     "MODIFY": 0,
-    "BLOCK": 3,
-    "ESCALATE": 1
+    "BLOCK": 4,
+    "ESCALATE": 5
   },
   "outcomes": {
-    "EXECUTED": 1,
-    "BLOCKED": 3,
-    "ESCALATED": 1,
+    "EXECUTED": 5,
+    "BLOCKED": 5,
+    "ESCALATED": 0,
     "REJECTED": 0,
     "PENDING": 0
   },
   "security_events": [
+    {
+      "transaction_id": 599,
+      "symbol": "XRP",
+      "action": "BUY",
+      "requested_quantity": 5646.3905027944,
+      "status": "BLOCKED",
+      "guardian_decision": "BLOCK",
+      "guardian_reason": "Order violates active submitted theory: Order exceeds permitted per-buy budget",
+      "risk_score": 90,
+      "created_at": "2026-11-25 12:05:48"
+    },
+    {
+      "transaction_id": 595,
+      "symbol": "XRP",
+      "action": "BUY",
+      "requested_quantity": 6245.3951243091,
+      "status": "BLOCKED",
+      "guardian_decision": "ESCALATE",
+      "guardian_reason": "Untrusted market news contains prompt-injection instructions targeting this currency.",
+      "risk_score": 85,
+      "created_at": "2026-11-25 12:01:13"
+    },
     {
       "transaction_id": 469,
       "symbol": "XRP",
@@ -57,17 +79,6 @@
       "guardian_reason": "Independent hard rules failed: insufficient_holdings",
       "risk_score": 100,
       "created_at": "2026-11-24 14:58:40"
-    },
-    {
-      "transaction_id": 468,
-      "symbol": "XRP",
-      "action": "SELL",
-      "requested_quantity": 6890.2540319527,
-      "status": "ESCALATED",
-      "guardian_decision": "ESCALATE",
-      "guardian_reason": "Human review required: suspicious_instructions",
-      "risk_score": 80,
-      "created_at": "2026-11-24 14:54:24"
     },
     {
       "transaction_id": 466,
@@ -95,13 +106,13 @@
   "chains": {
     "trader": {
       "valid": true,
-      "count": 55,
+      "count": 96,
       "broken_seq": null,
       "reason": "SHA-256 chain verified"
     },
     "guardian": {
       "valid": true,
-      "count": 17,
+      "count": 29,
       "broken_seq": null,
       "reason": "SHA-256 chain verified"
     }
