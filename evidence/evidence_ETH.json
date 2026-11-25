@@ -1,0 +1,59 @@
+{
+  "coin": "ETH",
+  "member": "Abdulla Alshehhi",
+  "student_id": "100061146",
+  "executed_fills": 6,
+  "sample_count": 7,
+  "start_value": 100184.36,
+  "end_value": 99859.92,
+  "portfolio_return_pct": -0.3238,
+  "max_drawdown_pct": -0.324,
+  "buy_and_hold_pct": 1.7152,
+  "policy": {
+    "allowed_symbols": [
+      "ETH"
+    ],
+    "restricted_actions": [
+      "WITHDRAW"
+    ],
+    "max_transaction_amount": 10000,
+    "escalation_threshold": 2000,
+    "max_trades_per_hour": 10,
+    "max_trades_per_day": 50
+  },
+  "session_window": {
+    "start": "2026-11-25 01:15:48",
+    "end": "2026-11-25T12:52:18.254306+00:00",
+    "theory_id": 83,
+    "theory_version": 2,
+    "strategy": "momentum"
+  },
+  "verdicts": {
+    "APPROVE": 0,
+    "MODIFY": 0,
+    "BLOCK": 0,
+    "ESCALATE": 6
+  },
+  "outcomes": {
+    "EXECUTED": 6,
+    "BLOCKED": 0,
+    "ESCALATED": 0,
+    "REJECTED": 0,
+    "PENDING": 0
+  },
+  "security_events": [],
+  "chains": {
+    "trader": {
+      "valid": true,
+      "count": 36,
+      "broken_seq": null,
+      "reason": "SHA-256 chain verified"
+    },
+    "guardian": {
+      "valid": true,
+      "count": 4,
+      "broken_seq": null,
+      "reason": "SHA-256 chain verified"
+    }
+  }
+}
