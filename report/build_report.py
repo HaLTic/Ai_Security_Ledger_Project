@@ -43,9 +43,9 @@ EVIDENCE_DIR = ROOT / "evidence"
 
 ROSTER = [
     ("BTC", "Zayed Alnuaimi", "100061300"),
-    ("ETH", "Mohamed Alromaithi", "100060448"),
+    ("ETH", "Abdulla Alshehhi", "100061146"),
     ("SOL", "Ibrahim Alhashmi", "100059929"),
-    ("XRP", "Abdulla Alshehhi", "100061146"),
+    ("XRP", "Mohamed Alromaithi", "100060448"),
 ]
 
 VERIFIED_UNIT_TESTS = [
@@ -275,9 +275,9 @@ def render_html(exports, charts):
   <div class="paper-title">Securing an Autonomous LLM Trading Agent with an Independent AI Guardian: A Layered Threat Model and Live Evaluation on Ledger</div>
   <div class="authors-grid">
     <div><b>Zayed Alnuaimi</b><br>ID: 100061300<br>Coin: <code>BTC</code></div>
-    <div><b>Mohamed Alromaithi</b><br>ID: 100060448<br>Coin: <code>ETH</code></div>
+    <div><b>Abdulla Alshehhi</b><br>ID: 100061146<br>Coin: <code>ETH</code></div>
     <div><b>Ibrahim Alhashmi</b><br>ID: 100059929<br>Coin: <code>SOL</code></div>
-    <div><b>Abdulla Alshehhi</b><br>ID: 100061146<br>Coin: <code>XRP</code></div>
+    <div><b>Mohamed Alromaithi</b><br>ID: 100060448<br>Coin: <code>XRP</code></div>
   </div>
   <div class="paper-affil">Department of Computer Science, Khalifa University of Science and Technology, Abu Dhabi, UAE (COSC 435 Fall 2026)</div>
 </div>
@@ -460,9 +460,9 @@ def render_html(exports, charts):
     <thead><tr><th>Member (ID)</th><th>Coin</th><th>Tasks and Deliverable Leadership</th></tr></thead>
     <tbody>
       <tr><td><b>Zayed Alnuaimi</b> (100061300)</td><td><code>BTC</code></td><td><b>Lead: AI Guardian Hardening, Log Viewer, and Final Report.</b> Added Gemini Interactions API support, news-injection scanning, tick-drift tolerance, SHA-256 log chaining, <code>dashboard.py</code>, report pipeline, and live BTC / Attack Simulator runs.</td></tr>
-      <tr><td><b>Mohamed Alromaithi</b> (100060448)</td><td><code>ETH</code></td><td><b>Lead: Core Agent Baseline and DeepSeek Setup.</b> Set up initial Trader/Guardian structure, HTTP client, recovery journal, DeepSeek Responses integration, and live ETH session.</td></tr>
+      <tr><td><b>Abdulla Alshehhi</b> (100061146)</td><td><code>ETH</code></td><td><b>Lead: Security Verification, Metrics, and Presentation.</b> Reviewed unit-test coverage, multi-currency metric aggregation, PowerPoint demo deck, and live ETH session.</td></tr>
       <tr><td><b>Ibrahim Alhashmi</b> (100059929)</td><td><code>SOL</code></td><td><b>Lead: Market Replay and Theory Validation.</b> Verified Appendix A <code>price_at()</code> fixtures, momentum signal edge tests, theory submission settings, and live SOL session.</td></tr>
-      <tr><td><b>Abdulla Alshehhi</b> (100061146)</td><td><code>XRP</code></td><td><b>Lead: Security Verification, Metrics, and Presentation.</b> Reviewed unit-test coverage, multi-currency metric aggregation, PowerPoint demo deck, and live XRP session.</td></tr>
+      <tr><td><b>Mohamed Alromaithi</b> (100060448)</td><td><code>XRP</code></td><td><b>Lead: Core Agent Baseline and DeepSeek Setup.</b> Set up initial Trader/Guardian structure, HTTP client, recovery journal, DeepSeek Responses integration, and live XRP session.</td></tr>
     </tbody>
   </table>
 </div>

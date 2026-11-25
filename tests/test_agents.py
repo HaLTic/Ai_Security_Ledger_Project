@@ -1039,7 +1039,7 @@ class CollectEvidenceTests(unittest.TestCase):
     def test_summarize_account_contains_no_secret_fields(self):
         model, theory, policy, portfolio, _ = fixtures()
         summary = summarize_account(
-            "ETH", "Mohamed Alromaithi", "100060448",
+            "XRP", "Mohamed Alromaithi", "100060448",
             policy=policy, portfolio=portfolio, theory=theory, model=model,
             transactions=[], guardian_logs=[],
         )

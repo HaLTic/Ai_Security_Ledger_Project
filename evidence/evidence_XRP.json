@@ -1,12 +1,12 @@
 {
   "coin": "XRP",
-  "member": "Abdulla Alshehhi",
-  "student_id": "100061146",
+  "member": "Mohamed Alromaithi",
+  "student_id": "100060448",
   "executed_fills": 1,
   "sample_count": 13,
   "start_value": 100000.0,
-  "end_value": 100476.2,
-  "portfolio_return_pct": 0.4762,
+  "end_value": 100735.79,
+  "portfolio_return_pct": 0.7358,
   "max_drawdown_pct": -0.158,
   "buy_and_hold_pct": 6.2521,
   "policy": {

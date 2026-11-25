@@ -38,9 +38,9 @@ SLATE = RGBColor(100, 116, 139)
 
 ROSTER = [
     ("BTC", "Zayed Alnuaimi", "100061300", "Guardian, Log Viewer & Report", BLUE),
-    ("ETH", "Mohamed Alromaithi", "100060448", "Core Agents & DeepSeek Setup", GREEN),
+    ("ETH", "Abdulla Alshehhi", "100061146", "Tests, Metrics & Slides", GREEN),
     ("SOL", "Ibrahim Alhashmi", "100059929", "Market Replay & Theory Rules", SLATE),
-    ("XRP", "Abdulla Alshehhi", "100061146", "Tests, Metrics & Slides", AMBER),
+    ("XRP", "Mohamed Alromaithi", "100060448", "Core Agents & DeepSeek Setup", AMBER),
 ]
 
 
@@ -403,9 +403,9 @@ def build():
     ], accent=AMBER)
     add_card(s8, 6.75, 1.35, 5.98, 5.35, "Group Contributions (4 Members)", [
         "Zayed Alnuaimi (100061300, BTC): Guardian hardening, Gemini 3.8 adapter, log viewer & Report",
-        "Mohamed Alromaithi (100060448, ETH): Core Trading/Guardian repo, transport & DeepSeek",
+        "Abdulla Alshehhi (100061146, ETH): Security tests, metrics aggregation & Slides",
         "Ibrahim Alhashmi (100059929, SOL): Power-law replay verification & momentum theory",
-        "Abdulla Alshehhi (100061146, XRP): Security tests, metrics aggregation & Slides",
+        "Mohamed Alromaithi (100060448, XRP): Core Trading/Guardian repo, transport & DeepSeek",
     ], accent=GREEN)
     s8.notes_slide.notes_text_frame.text = (
         "[6:35-7:00] Wrap up and prepare for Q&A:\n"

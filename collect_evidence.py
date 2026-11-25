@@ -16,9 +16,9 @@ from storage import atomic_json, verify_chain
 
 TEAM_DEFAULTS = {
     "BTC": ("Zayed Alnuaimi", "100061300"),
-    "ETH": ("Mohamed Alromaithi", "100060448"),
+    "ETH": ("Abdulla Alshehhi", "100061146"),
     "SOL": ("Ibrahim Alhashmi", "100059929"),
-    "XRP": ("Abdulla Alshehhi", "100061146"),
+    "XRP": ("Mohamed Alromaithi", "100060448"),
 }
 
 
